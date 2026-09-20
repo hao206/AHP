@@ -556,33 +556,6 @@ def download_sample_csv():
 
 # ----------------- Advanced Analytical Endpoints -----------------
 
-@app.post("/api/ahp/monte-carlo")
-def monte_carlo_analysis(req: MonteCarloRequest):
-    """
-    Executes a Monte Carlo stochastic robustness simulation across 1,000+ iterations
-    measuring alternative win probability and rank shifts under criteria weight uncertainties.
-    """
-    try:
-        hierarchy = AHPHierarchy(req.goal, req.criteria, req.alternatives)
-        for i in range(len(req.criteria)):
-            for j in range(len(req.criteria)):
-                hierarchy.criteria_matrix.matrix[i, j] = req.criteria_matrix[i][j]
-        for c in req.criteria:
-            if c in req.alt_matrices:
-                m = req.alt_matrices[c]
-                for i in range(len(req.alternatives)):
-                    for j in range(len(req.alternatives)):
-                        hierarchy.alt_matrices[c].matrix[i, j] = m[i][j]
-        
-        sim_result = run_monte_carlo_simulation(
-            hierarchy,
-            num_simulations=req.num_simulations or 1000,
-            perturbation_pct=req.perturbation_pct or 0.20
-        )
-        return sim_result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
 @app.post("/api/ahp/group-decision")
 def group_decision_consensus(req: GroupDecisionRequest):
     """
