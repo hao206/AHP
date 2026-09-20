@@ -52,7 +52,7 @@ Trong thực tiễn quản lý, các nhà lãnh đạo thường xuyên phải �
 
 ### 1.2. Tiến trình Phân tích Thứ bậc (AHP)
 
-Được phát triển bởi Giáo sư Thomas L. Saaty vào cuối thập niên 1970, AHP là phương pháp luận kinh điển giúp phân rã một vấn đề quyết định phức tạp thành một cấu trúc thứ bậc có tính hệ thống. Điểm cốt lõi của AHP là chuyển đổi các đánh giá so sánh cặp định tính của con người thành các giá trị số trên thang đo tỷ lệ, từ đó tính toán vector trọng số ưu tiên thông qua lý thuyết giá trị riêng và véc-tơ riêng của ma trận.
+Được phát triển bởi Giáo sư Thomas L. Saaty vào cuối thập niên 1970, AHP là phương pháp luận kinh điển giúp phân rã một vấn đề quyết định phức tạp thành một cấu trúc thứ bậc có tính hệ thống. Điểm cốt lõi của AHP là chuyển đổi các đánh giá so sánh cặp định tính của con người thành các giá trị số trên thang đo tỷ lệ, từ đó tính toán vector trọng số ưu tiên thông qua lý thuyết định lý Perron-Frobenius về ma trận dương.
 
 ### 1.3. Nguồn cảm hứng từ Expert Choice và nhu cầu hiện đại hóa công cụ ra quyết định
 
@@ -103,9 +103,9 @@ Mô hình quyết định được tổ chức thành đồ thị phân cấp 3 
 | 7 | Rất quan trọng (Very Strong) | Một yếu tố thể hiện sự vượt trội rõ rệt |
 | 9 | Cực kỳ quan trọng (Extreme) | Bằng chứng ủng hộ tuyệt đối ở mức cao nhất |
 | 2, 4, 6, 8 | Giá trị trung gian | Dùng khi cần sự thỏa hiệp giữa hai mức đánh giá liền kề |
-| Nghịch đảo ($1/a_{ij}$) | Đánh giá đối ứng | Nếu $i$ so với $j$ có mức $a_{ij}$, thì $j$ so với $i$ có mức $1/a_{ij}$ |
+| Nghịch đảo ($1/a_{ij}$) | Đánh giá đối ứng | Nếu phần tử $i$ so với $j$ có mức $a_{ij}$, thì $j$ so với $i$ có mức $1/a_{ij}$ |
 
-Ma trận so sánh cặp $A = [a_{ij}]_{n \times n}$ thỏa mãn các điều kiện tiên đề:
+Ma trận so sánh cặp $A = [a_{ij}]_{n \times n}$ thỏa mãn các tiên đề tương hỗ dương (Positive Reciprocal Matrix):
 
 $$a_{ij} > 0, \quad a_{ji} = \frac{1}{a_{ij}}, \quad a_{ii} = 1 \quad (\forall i, j = 1, \dots, n)$$
 
@@ -117,23 +117,26 @@ $$N_{\text{comparisons}} = \frac{n(n - 1)}{2}$$
 
 ### 2.3. Các phương pháp xác định Vector trọng số ưu tiên (Priority Vectors)
 
-Hệ thống tích hợp và cho phép đối chuẩn song song 3 phương pháp toán học để trích xuất vector trọng số $w = [w_1, w_2, \dots, w_n]^T$ thỏa mãn $\sum_{i=1}^n w_i = 1$:
+Hệ thống tích hợp và cho phép đối chuẩn song song 3 phương pháp toán học để trích xuất vector trọng số $w = [w_1, w_2, \dots, w_n]^T$ thỏa mãn điều kiện chuẩn hóa $\sum_{i=1}^n w_i = 1$ và $w_i > 0$:
 
 #### a. Phương pháp Véc-tơ riêng chính (Principal Eigenvector Method - EVM qua Power Iteration)
 
-Đây là phương pháp chuẩn xác do Thomas L. Saaty đề xuất dựa trên phương trình đặc trưng:
+Theo định lý Perron-Frobenius đối với ma trận dương tương hỗ $A$, tồn tại duy nhất một giá trị riêng thực dương lớn nhất $\lambda_{\max} \ge n$ ứng với véc-tơ riêng dương $w$:
 
 $$A w = \lambda_{\max} w$$
 
-Trong đó $\lambda_{\max}$ là giá trị riêng thực lớn nhất của ma trận $A$.
+Hệ thống giải phương trình đặc trưng bằng giải thuật lặp lũy thừa (Power Iteration):
 
-Hệ thống tính toán $w$ bằng giải thuật lặp lũy thừa (Power Iteration):
+1. Khởi tạo vector phân bố đều:
+   $$w^{(0)} = \left[\frac{1}{n}, \frac{1}{n}, \dots, \frac{1}{n}\right]^T$$
 
-1. Khởi tạo $w^{(0)} = \left[\frac{1}{n}, \frac{1}{n}, \dots, \frac{1}{n}\right]^T$.
 2. Tại bước lặp $k + 1$:
    $$y^{(k+1)} = A w^{(k)}, \quad w^{(k+1)} = \frac{y^{(k+1)}}{\sum_{i=1}^n y_i^{(k+1)}}$$
-3. Dừng lặp khi $\|w^{(k+1)} - w^{(k)}\|_\infty < \epsilon$ (với $\epsilon = 10^{-7}$).
-4. Ước lượng giá trị riêng cực đại:
+
+3. Điều kiện dừng lặp theo chuẩn vô cùng ($L_\infty$):
+   $$\|w^{(k+1)} - w^{(k)}\|_\infty < \epsilon \quad (\text{với } \epsilon = 10^{-7})$$
+
+4. Ước lượng giá trị riêng cực đại $\lambda_{\max}$:
    $$\lambda_{\max} = \frac{1}{n} \sum_{i=1}^n \frac{(A w)_i}{w_i}$$
 
 #### b. Phương pháp Trung bình nhân (Geometric Mean Method - GMM / Logarithmic Least Squares)
@@ -142,7 +145,11 @@ Trọng số được tính trực tiếp từ trung bình nhân từng hàng c�
 
 $$r_i = \left( \prod_{j=1}^n a_{ij} \right)^{\frac{1}{n}}, \quad w_i = \frac{r_i}{\sum_{k=1}^n r_k}$$
 
-Phương pháp này giảm thiểu tổng bình phương sai lệch logarit $\sum_{i,j} (\ln a_{ij} - \ln(w_i/w_j))^2$ và hoàn toàn loại bỏ hiện tượng đảo ngược thứ bậc khi thêm/bớt phần tử trong ma trận.
+Về mặt tối ưu hóa, nghiệm $w$ của GMM chính là nghiệm của bài toán bình phương tối thiểu logarit:
+
+$$\min_{w} \sum_{i=1}^n \sum_{j=1}^n \left( \ln a_{ij} - \ln \frac{w_i}{w_j} \right)^2 \quad \text{thỏa mãn } \sum_{i=1}^n w_i = 1$$
+
+Phương pháp GMM hoàn toàn loại bỏ hiện tượng đảo ngược thứ bậc (Rank Reversal) khi thêm hoặc bớt phần tử so sánh.
 
 #### c. Phương pháp Chuẩn hóa trung bình số học (Arithmetic Column Normalization)
 
@@ -152,47 +159,48 @@ $$w_i = \frac{1}{n} \sum_{j=1}^n \frac{a_{ij}}{\sum_{k=1}^n a_{kj}}$$
 
 #### d. Đối chuẩn sai lệch đa phương pháp (Multi-Method Benchmark)
 
-Hệ thống tính toán độ lệch tuyệt đối tối đa giữa các phương pháp:
+Hệ thống đo lường độ lệch tuyệt đối cực đại (Chebyshev Distance / $L_\infty$ Discrepancy) giữa EVM và GMM:
 
 $$\text{MAD}_{\text{EVM-GMM}} = \max_{1 \le i \le n} |w_i^{\text{EVM}} - w_i^{\text{GMM}}|$$
 
-Nếu $\text{MAD} < 0.03$, ma trận đạt độ vững chắc cao (High Robustness); nếu $\text{MAD} \ge 0.03$, hệ thống đưa ra khuyến nghị kiểm tra lại tính nhất quán.
+- Nếu $\text{MAD}_{\text{EVM-GMM}} < 0.03$: Ma trận đạt độ vững chắc cao (High Robustness).
+- Nếu $\text{MAD}_{\text{EVM-GMM}} \ge 0.03$: Xuất hiện sai lệch đáng kể, hệ thống khuyến nghị rà soát lại các ô so sánh mâu thuẫn.
 
 ---
 
 ### 2.4. Kiểm định tính nhất quán logic (Consistency Verification) & Khoảng dung sai trọng số
 
-Do phán đoán của con người không thể đạt tính bắc cầu tuyệt đối ($a_{ik} = a_{ij} \cdot a_{jk}$), hệ thống thực hiện kiểm định tính nhất quán toán học nghiêm ngặt:
+Do phán đoán chủ quan của con người khó đạt tính bắc cầu tuyệt đối ($a_{ik} = a_{ij} \cdot a_{jk}$), hệ thống thực hiện kiểm định tính nhất quán toán học nghiêm ngặt:
 
 #### a. Chỉ số nhất quán (Consistency Index - CI)
 
 $$CI = \frac{\lambda_{\max} - n}{n - 1} \quad (n > 1)$$
 
-*(Khi ma trận nhất quán hoàn hảo, $\lambda_{\max} = n \Rightarrow CI = 0$)*.
+*(Khi ma trận nhất quán hoàn hảo, $\lambda_{\max} = n \iff CI = 0$)*.
 
 #### b. Tỷ số nhất quán (Consistency Ratio - CR)
 
 $$CR = \frac{CI}{RI(n)}$$
 
-Trong đó $RI(n)$ là Chỉ số Ngẫu nhiên (Random Index) được xác định từ trung bình $CI$ của hàng ngàn ma trận ngẫu nhiên cùng kích thước do Saaty công bố:
+Trong đó $RI(n)$ là Chỉ số Ngẫu nhiên (Random Index) từ tập hợp ma trận ngẫu nhiên cùng kích thước của Saaty:
 
 | $n$ | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **RI** | 0.00 | 0.00 | 0.58 | 0.90 | 1.12 | 1.24 | 1.32 | 1.41 | 1.45 | 1.49 | 1.51 | 1.48 | 1.56 | 1.57 | 1.59 |
 
-- **Điều kiện chấp nhận**: $CR < 0.10$ ($10\%$). Nếu $CR \ge 0.10$, ma trận bị xem là mâu thuẫn và cần điều chỉnh lại đánh giá.
+- **Điều kiện chấp nhận**: $CR < 0.10$ ($10\%$). Khi $CR \ge 0.10$, ma trận bị đánh giá là mâu thuẫn logic và cần hiệu chỉnh.
 
 #### c. Kiểm định mở rộng Alonso & Lamata (2006)
 
-Để bổ trợ cho bảng tra ngẫu nhiên cổ điển, hệ thống tích hợp công thức xấp xỉ liên tục của Alonso & Lamata:
+Hệ thống tích hợp mô hình hồi quy giải tích liên tục của Alonso & Lamata để xác định $CR_{\text{Alonso}}$:
 
-$$RI_{\text{Alonso}}(n) = \frac{2.7699 \cdot n - 4.3513 - n}{n - 1}$$
+$$RI_{\text{Alonso}}(n) = \frac{1.7699 \cdot n - 4.3513}{n - 1}$$
 
-$$CR_{\text{Alonso}} = \frac{\lambda_{\max} - n}{(2.7699 \cdot n - 4.3513) - n}$$
+$$CR_{\text{Alonso}} = \frac{\lambda_{\max} - n}{1.7699 \cdot n - 4.3513}$$
 
 #### d. Sai số ước lượng trọng số Goepel và Khoảng dung sai tin cậy (Tolerance Intervals)
 
-Hệ thống tính sai số tiêu chuẩn $\sigma_{w_i}$ của từng trọng số:
+Theo mô hình Goepel (AHP-OS), sai số tiêu chuẩn $\sigma_{w_i}$ của từng trọng số được tính toán dựa trên độ phân tán của ma trận:
 
 $$\sigma_{w_i} = \sqrt{\frac{1}{n - 1} \sum_{k=1}^n \left( a_{ik} w_k \frac{n}{\lambda_{\max}} - w_i \right)^2}$$
 
@@ -204,64 +212,63 @@ $$w_i \in \left[ \max(0, w_i - \sigma_{w_i}), \; w_i + \sigma_{w_i} \right]$$
 
 ### 2.5. Thuật toán Chẩn đoán sai lệch & Tự động hiệu chỉnh nhất quán (Inconsistency Doctor)
 
-Khi $CR \ge 0.10$, việc tự tìm ô phán đoán gây mâu thuẫn là bài toán rất khó đối với người dùng. Hệ thống phát triển công cụ **Inconsistency Doctor** với cơ chế 2 bước:
+Khi $CR \ge 0.10$, hệ thống tự động kích hoạt **Inconsistency Doctor**:
 
 #### a. Định vị sai lệch chuyển tiếp cực đại
 
-Hệ thống tính tỷ số lý tưởng $r_{ij}^* = \frac{w_i}{w_j}$ và đo lường độ lệch tương đối của từng ô so sánh:
+Hệ thống so sánh từng ô $a_{ij}$ với tỷ số trọng số lý thuyết $r_{ij}^* = \frac{w_i}{w_j}$:
 
-$$\text{Dev}_{ij} = \frac{|a_{ij} - r_{ij}^*|}{\max(a_{ij}, r_{ij}^*)}$$
+$$\text{Dev}_{ij} = \frac{|a_{ij} - r_{ij}^*|}{\max(a_{ij}, r_{ij}^*)} \quad (1 \le i < j \le n)$$
 
-Cặp phần tử $(i, j)$ có $\text{Dev}_{ij}$ lớn nhất được xác định là nguyên nhân chính dẫn đến mâu thuẫn. Giá trị đề xuất tối ưu $a_{ij}^{\text{suggest}}$ được làm tròn về mức gần nhất trên thang Saaty:
+Cặp $(i, j)$ có $\text{Dev}_{ij}$ lớn nhất là ô gây mâu thuẫn nghiêm trọng nhất. Giá trị đề xuất tối ưu $a_{ij}^{\text{suggest}}$ được ánh xạ về mức gần nhất trên thang Saaty:
 
-$$a_{ij}^{\text{suggest}} = \operatorname{argmin}_{s \in \text{Saaty Scale}} |s - r_{ij}^*|$$
+$$a_{ij}^{\text{suggest}} = \operatorname*{arg\,min}_{s \in \text{Saaty Scale}} |s - r_{ij}^*|$$
 
 #### b. Thuật toán Tự động điều chỉnh ma trận tiệm cận (Auto-Tuning Engine)
 
-Thuật toán lặp tự động hiệu chỉnh từng bước ma trận theo hàm tối ưu:
-
 ```text
-Thuật toán: Tự động giảm bất nhất quán ma trận
-Đầu vào: Ma trận so sánh cặp A, ngưỡng CR mục tiêu (0.10), số bước lặp tối đa K = 6
-Đầu ra: Ma trận tối ưu A*, danh sách điều chỉnh
+Thuật toán: Tự động giảm bất nhất quán ma trận (Auto-Tuning Engine)
+Đầu vào: Ma trận so sánh cặp A, ngưỡng mục tiêu target_CR = 0.10, số bước lặp tối đa K = 6
+Đầu ra: Ma trận tối ưu A*, lịch sử điều chỉnh
 
-1. Tính CR hiện tại. Nếu CR <= 0.10, Dừng.
+1. Tính CR ban đầu của ma trận A. Nếu CR <= 0.10, Dừng.
 2. Lặp k từ 1 đến K:
-   a. Tính vector trọng số w và lambda_max.
-   b. Tìm cặp (i, j) có độ lệch |a_ij - w_i/w_j| đạt cực đại.
-   c. Gán giá trị mới: a_ij_new = SnapToSaatyScale(w_i / w_j).
-   d. Cập nhật: a_ij = a_ij_new, a_ji = 1 / a_ij_new.
-   e. Tính lại CR_moi.
-   f. Ghi nhận nhật ký điều chỉnh bước k.
-   g. Nếu CR_moi <= 0.10, Thoát vòng lặp.
-3. Trả về ma trận đã cân chỉnh và báo cáo kết quả.
+   a. Tính vector trọng số w và lambda_max bằng phương pháp EVM.
+   b. Tính CI và CR_k. Nếu CR_k <= target_CR, Thoát vòng lặp.
+   c. Tìm cặp chỉ số (i, j) có độ lệch |a_ij - (w_i / w_j)| đạt cực đại (với i < j).
+   d. Xác định giá trị mới: a_new = SnapToSaatyScale(w_i / w_j).
+   e. Nếu |a_new - a_ij| < 1e-3 thì điều chỉnh nhẹ: a_new = (a_ij + (w_i / w_j)) / 2.
+   f. Cập nhật ma trận: a_ij = a_new, a_ji = 1 / a_new, a_ii = 1.
+   g. Ghi nhận nhật ký bước k: ô điều chỉnh, giá trị cũ, giá trị mới, tỷ số lý tưởng.
+3. Tính toán lại vector trọng số và CR tối ưu cuối cùng.
+4. Trả về ma trận tối ưu A* cùng báo cáo cải thiện.
 ```
 
 ---
 
 ### 2.6. Thuật toán Điền khuyết ma trận so sánh cặp chưa hoàn chỉnh (Incomplete Matrix Completion)
 
-Khi chuyên gia không thể đánh giá toàn bộ $n(n - 1)/2$ ô so sánh (ma trận khuyết thiếu, các ô chưa đánh giá có giá trị $a_{ij} = 0$), hệ thống giải bài toán tối ưu hóa phi tuyến phi tham số Log-Least Squares thông qua thuật toán BFGS:
+Khi chuyên gia chỉ đánh giá một phần ma trận (các ô khuyết thiếu có giá trị $a_{ij} = 0$), hệ thống giải bài toán tối ưu hóa phi tuyến phi tham số Log-Least Squares thông qua thuật toán BFGS:
 
-$$\min_{x} \sum_{(i, j) \in \Omega_{\text{missing}}} \sum_{k=1}^n \left( \ln a_{ik}(x) - \ln \frac{w_i(x)}{w_k(x)} \right)^2$$
+$$\min_{x} \sum_{i=1}^n \sum_{j=1}^n \left( \ln a_{ij}(x) - \ln \frac{w_i(x)}{w_j(x)} \right)^2$$
 
-Trong đó biến tối ưu $x_{ij} = \ln a_{ij}$, sau đó các giá trị giải ra được ánh xạ ngược về thang đo Saaty:
+Trong đó tập biến tối ưu $x = \{x_{uv} = \ln a_{uv} \mid (u, v) \in \Omega_{\text{missing}}, \, u < v\}$, các ô đã đánh giá $(i, j) \notin \Omega_{\text{missing}}$ được giữ cố định. Sau khi hội tụ, giá trị giải ra được ánh xạ về thang Saaty:
 
-$$a_{ij}^* = \text{SnapToSaatyScale}(\exp(x_{ij}^*))$$
+$$a_{uv}^* = \text{SnapToSaatyScale}(\exp(x_{uv}^*)), \quad a_{vu}^* = \frac{1}{a_{uv}^*}$$
 
-Cơ chế này cho phép trích xuất trọng số chuẩn xác ngay cả khi ma trận bị khuyết tới $40\% - 50\%$ số cặp so sánh.
+Giải thuật cho phép trích xuất trọng số chính xác ngay cả khi ma trận thiếu hụt $40\% - 50\%$ số lượng ô đánh giá.
 
 ---
 
 ### 2.7. Tổng hợp thứ bậc toàn cục (Hierarchical Synthesis)
 
-Sau khi tính toán xong vector trọng số tiêu chí $w_{\text{crit}} = [w_1, w_2, \dots, w_n]^T$ và ma trận điểm cục bộ của các phương án theo từng tiêu chí $V_{\text{alt}} = [v_{ij}]_{m \times n}$ (trong đó $v_{ij}$ là trọng số của phương án $A_i$ dưới tiêu chí $C_j$), điểm tổng hợp toàn cục $S = [S_1, S_2, \dots, S_m]^T$ được tổng hợp theo phép nhân ma trận:
+Sau khi tính vector trọng số tiêu chí $w_{\text{crit}} = [w_1, w_2, \dots, w_n]^T$ và ma trận điểm cục bộ của phương án $V_{\text{alt}} = [v_{ij}]_{m \times n}$ ($v_{ij}$ là điểm của phương án $A_i$ theo tiêu chí $C_j$), điểm tổng hợp toàn cục $S = [S_1, S_2, \dots, S_m]^T$ được tính qua phép nhân ma trận:
 
 $$S = V_{\text{alt}} \times w_{\text{crit}} \iff S_i = \sum_{j=1}^n v_{ij} \cdot w_j \quad (i = 1, \dots, m)$$
 
 #### Tỷ số nhất quán toàn hệ thống (Overall Hierarchy Inconsistency - $CR_{\text{global}}$)
 
-Để kiểm định tính nhất quán của toàn bộ cấu trúc phân cấp:
+Theo định lý tổng hợp nhất quán phân cấp của Thomas L. Saaty:
 
 $$CI_{\text{global}} = CI_{\text{crit}} + \sum_{j=1}^n w_j \cdot CI_{\text{alt}, j}$$
 
@@ -269,7 +276,7 @@ $$RI_{\text{global}} = RI_{\text{crit}} + \sum_{j=1}^n w_j \cdot RI_{\text{alt},
 
 $$CR_{\text{global}} = \frac{CI_{\text{global}}}{RI_{\text{global}}}$$
 
-Hệ thống xác nhận mô hình đạt độ tin cậy tổng thể khi $CR_{\text{global}} < 0.10$.
+Toàn bộ hệ thống thứ bậc được xác nhận đạt tính nhất quán khi $CR_{\text{global}} < 0.10$.
 
 ---
 
@@ -277,37 +284,53 @@ Hệ thống xác nhận mô hình đạt độ tin cậy tổng thể khi $CR_{
 
 #### a. Phân tích độ nhạy động học (Dynamic Sensitivity)
 
-Cho phép người dùng tương tác kéo thanh trượt điều chỉnh trọng số của tiêu chí bất kỳ $C_k$ từ $0\%$ đến $100\%$. Để đảm bảo tiên đề $\sum_{j=1}^n w_j = 1$, trọng số của tất cả các tiêu chí còn lại được tự động tái phân bổ tỷ lệ:
+Khi người dùng điều chỉnh trọng số của tiêu chí $C_k$ thành $w_k \in [0, 1]$, để bảo đảm điều kiện chuẩn hóa $\sum_{j=1}^n w_j = 1$, trọng số của tất cả các tiêu chí còn lại được tái phân bổ tỷ lệ theo trọng số gốc $w_j^0$:
 
 $$w_j(w_k) = (1 - w_k) \cdot \frac{w_j^0}{\sum_{p \ne k} w_p^0} \quad (\forall j \ne k)$$
 
-Điểm số và thứ hạng của các phương án được tái tính toán và cập nhật theo thời gian thực (Real-time).
+Điểm số và thứ hạng của các phương án được cập nhật theo thời gian thực (Real-time).
 
 #### b. Phân tích độ nhạy độ dốc 2D (Gradient Sensitivity) & Điểm giao cắt (Crossover Points)
 
-Khảo sát liên tục biến thiên của trọng số tiêu chí được chọn $w_k \in [0, 1]$ với bước nhảy $\Delta w = 0.02$ ($51$ điểm mẫu). Đường hàm số điểm của phương án $A_i$ theo $w_k$ có dạng tuyến tính:
+Khảo sát liên tục biến thiên của $w_k \in [0, 1]$ với bước nhảy $\Delta w = 0.02$ (51 điểm mẫu). Điểm số của phương án $A_i$ theo biến số $w_k$ có dạng hàm tuyến tính:
 
-$$S_i(w_k) = v_{ik} \cdot w_k + \sum_{j \ne k} v_{ij} \cdot \left[ (1 - w_k) \frac{w_j^0}{\sum_{p \ne k} w_p^0} \right]$$
+$$S_i(w_k) = v_{ik} \cdot w_k + (1 - w_k) \cdot B_i(k)$$
 
-Hệ thống tự động giải hệ phương trình $S_i(w_k) = S_j(w_k)$ để tìm tất cả các **Điểm giao cắt (Crossover Points)** làm đảo chiều vị trí xếp hạng số 1 giữa các phương án:
+Trong đó $B_i(k)$ là điểm trung bình có trọng số của phương án $A_i$ trên tất cả các tiêu chí khác $C_k$:
 
-$$w_k^* = \frac{\sum_{p \ne k} (v_{jp} - v_{ip}) \frac{w_p^0}{\sum_{m \ne k} w_m^0}}{(v_{ik} - v_{jk}) - \sum_{p \ne k} (v_{ip} - v_{jp}) \frac{w_p^0}{\sum_{m \ne k} w_m^0}}$$
+$$B_i(k) = \sum_{p \ne k} v_{ip} \cdot \frac{w_p^0}{\sum_{m \ne k} w_m^0}$$
+
+Hệ thống giải phương trình tuyến tính $S_i(w_k) = S_j(w_k)$ để tìm chính xác tọa độ **Điểm giao cắt (Crossover Point)** làm đảo chiều vị trí xếp hạng giữa phương án $A_i$ và $A_j$:
+
+$$w_k^* = \frac{B_j(k) - B_i(k)}{(v_{ik} - v_{jk}) + (B_j(k) - B_i(k))}$$
+
+Điều kiện điểm giao cắt có nghĩa thực tế: $w_k^* \in [0, 1]$.
 
 ---
 
 ### 2.9. Đánh giá rủi ro & Độ vững chắc quyết định bằng Mô phỏng Monte Carlo
 
-Để khắc phục nhược điểm của phân tích độ nhạy tất định, hệ thống phát triển **Monte Carlo Robustness Engine**:
+Nhằm khắc phục giới hạn của phân tích độ nhạy tất định (Deterministic), hệ thống tích hợp động cơ mô phỏng ngẫu nhiên **Monte Carlo Robustness Engine**:
 
-1. Khởi tạo $N$ kịch bản giả định ngẫu nhiên ($N = 1.000 - 5.000$).
-2. Trong mỗi kịch bản $t$, áp dụng phân phối nhiễu chuẩn Gauss đa chiều với độ lệch chuẩn $\sigma = 10\% - 40\%$:
-   $$\tilde{w}_j^{(t)} = \max\left(\epsilon, \; w_j^0 \cdot \left(1 + \mathcal{N}(0, \sigma^2)\right)\right), \quad \hat{w}^{(t)} = \frac{\tilde{w}^{(t)}}{\sum_{j=1}^n \tilde{w}_j^{(t)}}$$
-3. Tính toán vector điểm tổng hợp: $S^{(t)} = V_{\text{alt}} \times \hat{w}^{(t)}$.
-4. Xác định phương án chiến thắng (Rank 1) tại mỗi kịch bản.
-5. Thống kê **Xác suất Chiến thắng (Win Probability)** và các tham số thống kê mô tả:
-   $$P_{\text{win}}(A_i) = \frac{\sum_{t=1}^N \mathbb{I}(\text{Rank}(A_i, S^{(t)}) = 1)}{N} \times 100\%$$
-   $$\mu_i = \frac{1}{N} \sum_{t=1}^N S_i^{(t)}, \quad \sigma_i = \sqrt{\frac{1}{N} \sum_{t=1}^N (S_i^{(t)} - \mu_i)^2}$$
-6. **Chỉ số Độ vững chắc (Robustness Index)**: Nếu $P_{\text{win}}(A_{\text{winner}}) \ge 70\%$, quyết định được phân loại là **Độ vững chắc rất cao (High Robustness)**; nếu $P_{\text{win}} < 70\%$, hệ thống phát cảnh báo cạnh tranh gay gắt và khuyến nghị bổ sung dữ liệu đánh giá.
+1. Thiết lập số lượng phép thử $N$ kịch bản ($N = 1.000 - 5.000$).
+2. Tại mỗi kịch bản $t$, áp dụng phân phối nhiễu chuẩn Gauss đa chiều với độ lệch chuẩn $\sigma = 10\% - 40\%$:
+   $$\tilde{w}_j^{(t)} = \max\left(10^{-4}, \; w_j^0 \cdot \xi_j^{(t)}\right), \quad \xi_j^{(t)} \sim \mathcal{N}(1, \sigma^2)$$
+   Vector trọng số được chuẩn hóa:
+   $$\hat{w}^{(t)} = \frac{\tilde{w}^{(t)}}{\sum_{j=1}^n \tilde{w}_j^{(t)}}$$
+
+3. Tính vector điểm số tổng hợp của các phương án:
+   $$S^{(t)} = V_{\text{alt}} \times \hat{w}^{(t)}$$
+
+4. Xác định phương án quán quân tại kịch bản $t$:
+   $$\text{Winner}^{(t)} = \operatorname*{arg\,max}_{1 \le i \le m} S_i^{(t)}$$
+
+5. Đo lường **Xác suất Chiến thắng (Win Probability)** và các đại lượng thống kê mô tả:
+   $$P_{\text{win}}(A_i) = \frac{1}{N} \sum_{t=1}^N \mathbb{I}\left(\text{Winner}^{(t)} = i\right) \times 100\%$$
+   $$\mu_i = \frac{1}{N} \sum_{t=1}^N S_i^{(t)}, \quad \sigma_i = \sqrt{\frac{1}{N - 1} \sum_{t=1}^N (S_i^{(t)} - \mu_i)^2}$$
+
+6. **Chỉ số Độ vững chắc (Robustness Index)**:
+   - Nếu $P_{\text{win}}(A_{\text{winner}}) \ge 70\%$: Quyết định đạt **Độ vững chắc rất cao (High Robustness)**.
+   - Nếu $P_{\text{win}}(A_{\text{winner}}) < 70\%$: Hệ thống phát cảnh báo cạnh tranh gay gắt, rủi ro đảo hạng cao khi môi trường biến động.
 
 ---
 
@@ -317,22 +340,26 @@ $$w_k^* = \frac{\sum_{p \ne k} (v_{jp} - v_{ip}) \frac{w_p^0}{\sum_{m \ne k} w_m
 
 Khi có $K$ chuyên gia đánh giá độc lập với các ma trận $A^{(1)}, A^{(2)}, \dots, A^{(K)}$, ma trận tổng hợp nhóm $A^{(\text{group})}$ được xác định bằng phương pháp Trung bình nhân hình học từng phần tử:
 
-$$a_{ij}^{(\text{group})} = \left( \prod_{k=1}^K a_{ij}^{(k)} \right)^{\frac{1}{K}}, \quad a_{ji}^{(\text{group})} = \frac{1}{a_{ij}^{(\text{group})}}$$
+$$a_{ij}^{(\text{group})} = \left( \prod_{k=1}^K a_{ij}^{(k)} \right)^{\frac{1}{K}}, \quad a_{ji}^{(\text{group})} = \frac{1}{a_{ij}^{(\text{group})}}, \quad a_{ii}^{(\text{group})} = 1$$
 
 #### b. Đo lường mức độ đồng thuận nhóm theo Shannon Entropy (Goepel Consensus Indicator $S^*$)
 
-Dựa trên lý thuyết phân rã đa dạng Entropy:
+Dựa trên lý thuyết phân rã đa dạng Entropy của Klaus D. Goepel (2013):
 
-- **Vector trọng số trung bình gộp (Pooled Weights)**:
-  $$\bar{w}_i = \frac{(\prod_{k=1}^K w_i^{(k)})^{1/K}}{\sum_{j=1}^n (\prod_{k=1}^K w_j^{(k)})^{1/K}}$$
-- **$\alpha$-Entropy** (Mức độ đa dạng trung bình trong nội bộ từng chuyên gia):
+- **Vector trọng số gộp toàn nhóm (Pooled Priority Vector)**:
+  $$\bar{w}_i = \frac{\left(\prod_{k=1}^K w_i^{(k)}\right)^{1/K}}{\sum_{j=1}^n \left(\prod_{k=1}^K w_j^{(k)}\right)^{1/K}} \quad (i = 1, \dots, n)$$
+
+- **$\alpha$-Entropy** (Mức độ đa dạng trung bình trong nhận thức của từng chuyên gia):
   $$H_\alpha = \frac{1}{K} \sum_{k=1}^K \left( -\sum_{i=1}^n w_i^{(k)} \ln w_i^{(k)} \right)$$
+
 - **$\gamma$-Entropy** (Mức độ đa dạng của vector trọng số gộp toàn nhóm):
   $$H_\gamma = -\sum_{i=1}^n \bar{w}_i \ln \bar{w}_i$$
-- **$\beta$-Entropy** (Mức độ bất đồng thuận giữa các chuyên gia):
+
+- **$\beta$-Entropy** (Mức độ bất đồng quan điểm giữa các thành viên):
   $$H_\beta = \max(0, \; H_\gamma - H_\alpha)$$
+
 - **Chỉ số Đồng thuận Nhóm ($S^*$)**:
-  $$S^* = \left( 1 - \frac{H_\beta}{\ln n} \right) \times 100\%$$
+  $$S^* = \left( 1 - \frac{H_\beta}{\ln n} \right) \times 100\% \quad (n > 1)$$
 
 **Thang đánh giá mức độ đồng thuận:**
 
@@ -345,22 +372,22 @@ Dựa trên lý thuyết phân rã đa dạng Entropy:
 
 ### 2.11. Mô hình Phân tích Thứ bậc Mờ (Fuzzy AHP)
 
-Để giải quyết tính không chắc chắn và mơ hồ trong nhận thức của chuyên gia, hệ thống tích hợp mô hình Fuzzy AHP sử dụng Số Mờ Tam Giác (Triangular Fuzzy Number - TFN) $\tilde{a} = (l, m, u)$ với $l \le m \le u$:
+Để mô hình hóa tính mơ hồ và không chắc chắn trong phán đoán của chuyên gia, hệ thống tích hợp mô hình Fuzzy AHP sử dụng Số Mờ Tam Giác (Triangular Fuzzy Number - TFN) $\tilde{a} = (l, m, u)$ với $l \le m \le u$:
 
 - $l$: Giá trị cận dưới khả dĩ (Lower bound).
-- $m$: Giá trị tin cậy cao nhất (Modal value).
+- $m$: Giá trị khả dĩ nhất (Modal / Most likely value).
 - $u$: Giá trị cận trên khả dĩ (Upper bound).
 
-**Quy trình tính toán theo Buckley Geometric Mean:**
+**Quy trình tính toán theo phương pháp Buckley Geometric Mean:**
 
-1. Tính giá trị mờ mở rộng theo hàng:
-   $$\tilde{r}_i = \left( \prod_{j=1}^n \tilde{a}_{ij} \right)^{\frac{1}{n}} = \left( \left(\prod_{j=1}^n l_{ij}\right)^{\frac{1}{n}}, \; \left(\prod_{j=1}^n m_{ij}\right)^{\frac{1}{n}}, \; \left(\prod_{j=1}^n u_{ij}\right)^{\frac{1}{n}} \right)$$
+1. Tính giá trị mờ mở rộng theo từng hàng:
+   $$\tilde{r}_i = \left( \prod_{j=1}^n \tilde{a}_{ij} \right)^{\frac{1}{n}} = \left( \left(\prod_{j=1}^n l_{ij}\right)^{\frac{1}{n}}, \; \left(\prod_{j=1}^n m_{ij}\right)^{\frac{1}{n}}, \; \left(\prod_{j=1}^n u_{ij}\right)^{\frac{1}{n}} \right) = (r_{i, l}, \, r_{i, m}, \, r_{i, u})$$
 
-2. Tính tổng vector mờ:
-   $$\sum_{i=1}^n \tilde{r}_i = \left( \sum_{i=1}^n \tilde{r}_{i, l}, \; \sum_{i=1}^n \tilde{r}_{i, m}, \; \sum_{i=1}^n \tilde{r}_{i, u} \right)$$
+2. Tính tổng vector mờ toàn phần:
+   $$\sum_{k=1}^n \tilde{r}_k = \left( \sum_{k=1}^n r_{k, l}, \; \sum_{k=1}^n r_{k, m}, \; \sum_{k=1}^n r_{k, u} \right)$$
 
-3. Trọng số mờ của phần tử $i$:
-   $$\tilde{w}_i = \tilde{r}_i \otimes \left( \sum_{i=1}^n \tilde{r}_i \right)^{-1} = \left( \frac{\tilde{r}_{i, l}}{\sum \tilde{r}_{i, u}}, \; \frac{\tilde{r}_{i, m}}{\sum \tilde{r}_{i, m}}, \; \frac{\tilde{r}_{i, u}}{\sum \tilde{r}_{i, l}} \right)$$
+3. Trích xuất trọng số mờ $\tilde{w}_i = (w_{i, l}, \, w_{i, m}, \, w_{i, u})$ qua phép nghịch đảo mờ:
+   $$w_{i, l} = \frac{r_{i, l}}{\sum_{k=1}^n r_{k, u}}, \quad w_{i, m} = \frac{r_{i, m}}{\sum_{k=1}^n r_{k, m}}, \quad w_{i, u} = \frac{r_{i, u}}{\sum_{k=1}^n r_{k, l}}$$
 
 4. Giải mờ (Defuzzification) theo phương pháp trọng tâm diện tích (Centroid) và chuẩn hóa:
    $$w_i^{\text{crisp}} = \frac{w_{i, l} + w_{i, m} + w_{i, u}}{3}, \quad w_i^* = \frac{w_i^{\text{crisp}}}{\sum_{k=1}^n w_k^{\text{crisp}}}$$
@@ -391,12 +418,12 @@ Mô hình này kết hợp vector trọng số $w$ thu được từ AHP với m
 
 3. **Xác định Nghiệm lý tưởng dương ($A^+$ - PIS) và Nghiệm lý tưởng âm ($A^-$ - NIS)**:
    - Nghiệm lý tưởng dương $A^+ = \{v_1^+, v_2^+, \dots, v_n^+\}$:
-     $$v_j^+ = \begin{cases} \max_i v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Lợi ích (Benefit)} \\ \min_i v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Chi phí (Cost)} \end{cases}$$
+     $$v_j^+ = \begin{cases} \max_{1 \le i \le m} v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Lợi ích (Benefit)} \\ \min_{1 \le i \le m} v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Chi phí (Cost)} \end{cases}$$
    - Nghiệm lý tưởng âm $A^- = \{v_1^-, v_2^-, \dots, v_n^-\}$:
-     $$v_j^- = \begin{cases} \min_i v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Lợi ích (Benefit)} \\ \max_i v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Chi phí (Cost)} \end{cases}$$
+     $$v_j^- = \begin{cases} \min_{1 \le i \le m} v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Lợi ích (Benefit)} \\ \max_{1 \le i \le m} v_{ij}, & \text{nếu } C_j \text{ là tiêu chí Chi phí (Cost)} \end{cases}$$
 
 4. **Tính khoảng cách Euclid**:
-   $$D_i^+ = \sqrt{\sum_{j=1}^n (v_{ij} - v_j^+)^2}, \quad D_i^- = \sqrt{\sum_{j=1}^n (v_{ij} - v_j^-)^2}$$
+   $$D_i^+ = \sqrt{\sum_{j=1}^n (v_{ij} - v_j^+)^2}, \quad D_i^- = \sqrt{\sum_{j=1}^n (v_{ij} - v_j^-)^2} \quad (i = 1, \dots, m)$$
 
 5. **Tính Hệ số tiệm cận tương đối ($C_i$)**:
    $$C_i = \frac{D_i^-}{D_i^+ + D_i^-} \quad (0 \le C_i \le 1)$$
