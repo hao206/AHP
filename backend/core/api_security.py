@@ -9,21 +9,29 @@ LOCAL_FRONTEND_ORIGINS = ("http://127.0.0.1:5175", "http://localhost:5175")
 
 
 def allowed_origins(value=None):
-    origins = [part.strip() for part in value.split(",")] if value is not None else list(LOCAL_FRONTEND_ORIGINS)
-    if not origins or any(not origin for origin in origins):
-        raise ValueError("AHP_CORS_ORIGINS must list explicit browser origins")
+    if value is None or not value.strip():
+        return list(LOCAL_FRONTEND_ORIGINS)
+    if value.strip() == "*":
+        return ["*"]
+    origins = [part.strip() for part in value.split(",") if part.strip()]
+    if not origins:
+        return list(LOCAL_FRONTEND_ORIGINS)
+    if "*" in origins:
+        return ["*"]
+    validated = []
     for origin in origins:
         try:
             parsed = urlsplit(origin)
+            _ = parsed.port
             valid = (parsed.scheme in ("http", "https") and parsed.hostname and
-                     parsed.port != 0 and not parsed.username and not parsed.password and
-                     origin == f"{parsed.scheme}://{parsed.netloc}" and
+                     not parsed.username and not parsed.password and
                      not any(character.isspace() for character in origin))
         except ValueError:
             valid = False
         if not valid:
             raise ValueError(f"Invalid AHP_CORS_ORIGINS entry: {origin}")
-    return list(dict.fromkeys(origins))
+        validated.append(f"{parsed.scheme}://{parsed.netloc}")
+    return list(dict.fromkeys(validated))
 
 
 def validate_project_token(token):
@@ -45,7 +53,8 @@ def project_access_error(token, authorization, server_host, client_host,
                          request_host, origin=None, request_origin=None, allowed=None,
                          method="GET"):
     """Return an HTTP status and message, or None when access is allowed."""
-    if method in ("POST", "DELETE") and origin and origin != request_origin and origin not in (allowed or ()):
+    allowed_list = allowed or ()
+    if method in ("POST", "DELETE") and origin and origin != request_origin and "*" not in allowed_list and origin not in allowed_list:
         return 403, "This browser origin is not allowed to change projects"
     if token:
         scheme, separator, supplied = (authorization or "").partition(" ")

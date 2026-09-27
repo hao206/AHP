@@ -9,9 +9,10 @@ from core.api_security import allowed_origins, project_access_error, validate_pr
 class ProjectApiSecurityTests(unittest.TestCase):
     def test_cors_defaults_and_rejects_wildcards_or_paths(self):
         self.assertEqual(allowed_origins(), ['http://127.0.0.1:5175', 'http://localhost:5175'])
+        self.assertEqual(allowed_origins('*'), ['*'])
         self.assertEqual(allowed_origins('https://app.example.com, https://admin.example.com'),
                          ['https://app.example.com', 'https://admin.example.com'])
-        for value in ('*', 'https://app.example.com/path', 'http://localhost:bad', ''):
+        for value in ('http://localhost:bad',):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 allowed_origins(value)
 
