@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Component } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
 import Navbar from './components/Navbar';
 import HierarchyStep from './components/HierarchyStep';
 import PairwiseStep from './components/PairwiseStep';
@@ -6,8 +6,15 @@ import ResultsStep from './components/ResultsStep';
 import SensitivityStep from './components/SensitivityStep';
 import HybridTopsisStep from './components/HybridTopsisStep';
 import ImportModal from './components/ImportModal';
-import { synthesizeHierarchyAPI, exportExcelAPI } from './utils/ahpClient';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { synthesizeHierarchyAPI, exportExcelAPI, getProjectAPI, saveProjectAPI, setProjectAccessToken } from './utils/ahpClient';
+import { ahpSignature, missingProjectComparisons, invalidProjectComparisons } from './utils/projectCompleteness.js';
+import {
+  ACTIVE_STEP_KEY, copyAsNewProject, createProjectSaveQueue,
+  hasUnsyncedChanges, markProjectSynced, nextUpdatedAt, readActiveProject,
+  readActiveProjectId, readActiveStep, serverProjectIsNewer, writeLocalProject,
+} from './utils/projectPersistence.js';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faTriangleExclamation, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -41,7 +48,7 @@ class ErrorBoundary extends Component {
             border: '1px solid rgba(239, 68, 68, 0.4)',
             background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(15, 23, 42, 0.95) 100%)'
           }}>
-            <AlertTriangle size={48} color="#ef4444" style={{ margin: '0 auto 1rem auto' }} />
+            <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '42px', color: '#ef4444', margin: '0 auto 1rem auto' }} />
             <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.5rem' }}>
               Đã Xảy Ra Sự Cố Hiển Thị
             </h3>
@@ -56,7 +63,7 @@ class ErrorBoundary extends Component {
                   window.location.reload();
                 }}
               >
-                <RefreshCw size={15} style={{ marginRight: '0.4rem' }} /> Tải Lại Trang
+                <FontAwesomeIcon icon={faArrowsRotate} style={{ fontSize: '14px', marginRight: '0.4rem' }} /> Tải Lại Trang
               </button>
               <button
                 className="btn btn-secondary"
@@ -325,9 +332,145 @@ const TEMPLATES = {
 };
 
 export default function App() {
-  const [project, setProject] = useState(TEMPLATES['template-vendor-selection']);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [synthesisResult, setSynthesisResult] = useState(null);
+  const [project, setProjectState] = useState(() => readActiveProject() || copyAsNewProject(TEMPLATES['template-vendor-selection']));
+  const [currentStep, setCurrentStep] = useState(() => {
+    const step = readActiveStep();
+    const local = readActiveProject();
+    return step > 2 && local && (missingProjectComparisons(local).length || invalidProjectComparisons(local).length) ? 2 : step;
+  });
+  const [isRestoring, setIsRestoring] = useState(() => Boolean(readActiveProjectId()));
+  const [saveStatus, setSaveStatus] = useState(() => readActiveProjectId() ? 'restoring' : 'pending');
+  const projectRef = useRef(project);
+  const startupProjectIdRef = useRef(project.id);
+  const activatedDuringRecoveryRef = useRef(false);
+  const editedDuringRecoveryRef = useRef(false);
+  const saveTimerRef = useRef(null);
+  const saveQueueRef = useRef(null);
+
+  useEffect(() => { projectRef.current = project; }, [project]);
+
+  useEffect(() => {
+    let mounted = true;
+    saveQueueRef.current = createProjectSaveQueue(saveProjectAPI, (snapshot, _saved, error) => {
+      if (!mounted) return;
+      if (!error) {
+        try { markProjectSynced(snapshot); } catch (storageError) { console.warn('Project sync marker failed:', storageError); }
+      }
+      if (error?.status === 409 && projectRef.current.id === snapshot.id) {
+        saveQueueRef.current?.cancel(snapshot.id);
+        const fork = copyAsNewProject(projectRef.current);
+        try { writeLocalProject(fork); } catch (storageError) { console.warn('Local project backup failed:', storageError); }
+        projectRef.current = fork;
+        setProjectState(fork);
+        setSaveStatus('pending');
+        return;
+      }
+      if (projectRef.current.id !== snapshot.id || projectRef.current.updated_at !== snapshot.updated_at) return;
+      if (error) {
+        console.warn('Project autosave failed:', error);
+        setSaveStatus(error.status === 401 ? 'auth' : 'local');
+      } else {
+        setSaveStatus('saved');
+      }
+    });
+    return () => { mounted = false; saveQueueRef.current = null; };
+  }, []);
+
+  const setProject = useCallback(update => {
+    editedDuringRecoveryRef.current = true;
+    setSaveStatus('pending');
+    setProjectState(previous => {
+      const next = typeof update === 'function' ? update(previous) : update;
+      if (next === previous) return previous;
+      return { ...next, updated_at: nextUpdatedAt(previous) };
+    });
+  }, []);
+
+  const saveActiveProject = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const snapshot = projectRef.current;
+    try {
+      writeLocalProject(snapshot);
+    } catch (error) {
+      console.warn('Local project backup failed:', error);
+    }
+    if (isRestoring) return Promise.resolve();
+    setSaveStatus('saving');
+    return saveQueueRef.current?.enqueue(snapshot) || Promise.resolve();
+  }, [isRestoring]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const activeId = readActiveProjectId();
+    if (!activeId) return;
+    getProjectAPI(activeId)
+      .then(server => {
+        if (cancelled || activatedDuringRecoveryRef.current || editedDuringRecoveryRef.current || !server || server.id !== activeId || projectRef.current.id !== startupProjectIdRef.current) return;
+        const local = projectRef.current;
+        const useServer = local.id !== activeId || serverProjectIsNewer(server, local);
+        if (useServer) {
+          const recovered = local.id === activeId && hasUnsyncedChanges(local)
+            ? copyAsNewProject(local)
+            : server;
+          try {
+            if (recovered === server) markProjectSynced(server);
+            writeLocalProject(recovered);
+          } catch (storageError) { console.warn('Local project backup failed:', storageError); }
+          projectRef.current = recovered;
+          setProjectState(recovered);
+          if (missingProjectComparisons(recovered).length || invalidProjectComparisons(recovered).length) {
+            setCurrentStep(step => step > 2 ? 2 : step);
+          }
+          setSaveStatus(recovered === server ? 'saved' : 'pending');
+        } else {
+          setSaveStatus('pending');
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          console.warn('Project recovery from server failed:', error);
+          setSaveStatus(error.status === 401 ? 'auth' : 'local');
+        }
+      })
+      .finally(() => { if (!cancelled) setIsRestoring(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (isRestoring) return;
+    try {
+      writeLocalProject(project);
+    } catch (error) {
+      console.warn('Local project backup failed:', error);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      setSaveStatus('saving');
+      saveQueueRef.current?.enqueue(project);
+    }, 700);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [project, isRestoring]);
+
+  useEffect(() => {
+    try { localStorage.setItem(ACTIVE_STEP_KEY, String(currentStep)); } catch { /* browser storage may be unavailable */ }
+  }, [currentStep]);
+
+  useEffect(() => {
+    if (isRestoring) return;
+    const onOnline = () => { saveActiveProject(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [isRestoring, saveActiveProject]);
+
+  useEffect(() => {
+    if (isRestoring || saveStatus !== 'local') return;
+    const retry = window.setInterval(saveActiveProject, 30000);
+    return () => window.clearInterval(retry);
+  }, [isRestoring, saveStatus, saveActiveProject]);
+  const connectProjectBackend = token => {
+    setProjectAccessToken(token);
+    saveActiveProject();
+  };
+  const [synthesisState, setSynthesisState] = useState({ signature: null, result: null });
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [customTemplates, setCustomTemplates] = useState(() => {
@@ -339,11 +482,32 @@ export default function App() {
     }
   });
 
+  const missingComparisons = missingProjectComparisons(project);
+  const invalidComparisons = invalidProjectComparisons(project);
+  const isProjectComplete = missingComparisons.length === 0 && invalidComparisons.length === 0;
+  const currentAhpSignature = ahpSignature(project);
+  const synthesisResult = isProjectComplete && synthesisState.signature === currentAhpSignature ? synthesisState.result : null;
+
   useEffect(() => {
-    synthesizeHierarchyAPI(project).then(res => {
-      setSynthesisResult(res);
-    });
-  }, [project]);
+    let cancelled = false;
+    const ahpProject = JSON.parse(currentAhpSignature);
+    if (missingProjectComparisons(ahpProject).length > 0 || invalidProjectComparisons(ahpProject).length > 0) {
+      return;
+    }
+    synthesizeHierarchyAPI(ahpProject)
+      .then(res => { if (!cancelled) setSynthesisState({ signature: currentAhpSignature, result: res }); })
+      .catch(err => { if (!cancelled) console.error('Synthesis failed:', err); });
+    return () => { cancelled = true; };
+  }, [currentAhpSignature]);
+
+  const activateProject = source => {
+    activatedDuringRecoveryRef.current = true;
+    saveActiveProject();
+    const nextProject = copyAsNewProject(source);
+    try { writeLocalProject(nextProject); } catch (error) { console.warn('Local project backup failed:', error); }
+    setProject(nextProject);
+    setCurrentStep(1);
+  };
 
   const handleSaveCustomTemplate = (customName) => {
     const templateId = `custom-${Date.now()}`;
@@ -382,17 +546,14 @@ export default function App() {
 
   const handleLoadTemplate = (templateKey) => {
     if (customTemplates[templateKey]) {
-      setProject(customTemplates[templateKey]);
-      setCurrentStep(1);
+      activateProject(customTemplates[templateKey]);
     } else if (TEMPLATES[templateKey]) {
-      setProject(TEMPLATES[templateKey]);
-      setCurrentStep(1);
+      activateProject(TEMPLATES[templateKey]);
     }
   };
 
   const handleImportSuccess = (importedProject) => {
-    setProject(importedProject);
-    setCurrentStep(1);
+    activateProject(importedProject);
   };
 
   const handleNewProject = () => {
@@ -403,18 +564,17 @@ export default function App() {
       criteria: ['Phù hợp Chiến lược', 'Chi phí & Vốn Đầu tư', 'Giảm thiểu Rủi ro'],
       alternatives: ['Phương án Alpha', 'Phương án Beta', 'Phương án Gamma'],
       criteria_matrix: [
-        [1.0, 1.0, 1.0],
-        [1.0, 1.0, 1.0],
-        [1.0, 1.0, 1.0]
+        [1.0, null, null],
+        [null, 1.0, null],
+        [null, null, 1.0]
       ],
       alt_matrices: {
-        'Phù hợp Chiến lược': [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
-        'Chi phí & Vốn Đầu tư': [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
-        'Giảm thiểu Rủi ro': [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+        'Phù hợp Chiến lược': [[1.0, null, null], [null, 1.0, null], [null, null, 1.0]],
+        'Chi phí & Vốn Đầu tư': [[1.0, null, null], [null, 1.0, null], [null, null, 1.0]],
+        'Giảm thiểu Rủi ro': [[1.0, null, null], [null, 1.0, null], [null, null, 1.0]]
       }
     };
-    setProject(fresh);
-    setCurrentStep(1);
+    activateProject(fresh);
   };
 
   const handleBlankProject = () => {
@@ -425,16 +585,15 @@ export default function App() {
       criteria: ['Tiêu chí A', 'Tiêu chí B'],
       alternatives: ['Phương án 1', 'Phương án 2'],
       criteria_matrix: [
-        [1.0, 1.0],
-        [1.0, 1.0]
+        [1.0, null],
+        [null, 1.0]
       ],
       alt_matrices: {
-        'Tiêu chí A': [[1.0, 1.0], [1.0, 1.0]],
-        'Tiêu chí B': [[1.0, 1.0], [1.0, 1.0]]
+        'Tiêu chí A': [[1.0, null], [null, 1.0]],
+        'Tiêu chí B': [[1.0, null], [null, 1.0]]
       }
     };
-    setProject(blank);
-    setCurrentStep(1);
+    activateProject(blank);
   };
 
   const handleExportJSON = () => {
@@ -448,6 +607,8 @@ export default function App() {
   };
 
   const handleExportExcel = async () => {
+    if (!isProjectComplete) return;
+    saveActiveProject();
     setIsExportingExcel(true);
     await exportExcelAPI(project);
     setIsExportingExcel(false);
@@ -468,6 +629,11 @@ export default function App() {
         onExportJSON={handleExportJSON}
         onExportExcel={handleExportExcel}
         isExportingExcel={isExportingExcel}
+        saveStatus={saveStatus}
+        onSaveProject={saveActiveProject}
+        onConnectProject={connectProjectBackend}
+        missingComparisonCount={missingComparisons.length}
+        invalidComparisonCount={invalidComparisons.length}
       />
 
       <ImportModal
@@ -493,6 +659,8 @@ export default function App() {
               project={project} 
               setProject={setProject} 
               onProceed={() => setCurrentStep(3)}
+              missingComparisons={missingComparisons}
+              invalidComparisons={invalidComparisons}
               onBack={() => setCurrentStep(1)}
             />
           )}
@@ -517,6 +685,7 @@ export default function App() {
           {currentStep === 5 && (
             <HybridTopsisStep
               project={project}
+              setProject={setProject}
               synthesisResult={synthesisResult}
               onBack={() => setCurrentStep(4)}
             />

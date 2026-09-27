@@ -1,10 +1,74 @@
 /**
  * AHP Client Utility - Comprehensive API Client & Local Fallback Engine
  */
+import { missingMatrixPairs, missingProjectComparisons, invalidMatrixComparisons, invalidProjectComparisons } from './projectCompleteness.js';
 
-const API_BASE = typeof window !== 'undefined' && window.location.port === '5173'
-  ? "http://127.0.0.1:8000/api"
-  : "/api";
+// Same-origin /api uses Vite's development proxy. A separate deployed frontend
+// can set VITE_API_BASE_URL to the backend's full /api URL at build time.
+const API_BASE = (import.meta.env?.VITE_API_BASE_URL?.trim() || '/api').replace(/\/$/, '');
+const PROJECT_TOKEN_KEY = 'ahp_project_access_token_v1';
+let projectAccessToken = '';
+
+export function setProjectAccessToken(token) {
+  projectAccessToken = token.trim();
+  try { globalThis.sessionStorage?.setItem(PROJECT_TOKEN_KEY, projectAccessToken); } catch { /* memory-only token */ }
+}
+
+function projectAuthorizationHeaders() {
+  try { projectAccessToken ||= globalThis.sessionStorage?.getItem(PROJECT_TOKEN_KEY) || ''; } catch { /* memory-only token */ }
+  return projectAccessToken ? { Authorization: `Bearer ${projectAccessToken}` } : {};
+}
+
+async function fetchProjectEndpoint(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function ensureProjectBackend() {
+  const response = await fetchProjectEndpoint(`${API_BASE}/health`);
+  if (!response.ok) throw new Error('Không thể kết nối máy chủ dự án.');
+  const health = await response.json();
+  if (health.service !== 'AHP Decision Studio Enterprise API') {
+    throw new Error('Cổng này không chạy máy chủ AHP Decision Studio.');
+  }
+}
+
+export async function getProjectAPI(id) {
+  await ensureProjectBackend();
+  const response = await fetchProjectEndpoint(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
+    headers: projectAuthorizationHeaders(),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const error = new Error(`Không thể khôi phục dự án (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+export async function saveProjectAPI(project) {
+  await ensureProjectBackend();
+  const response = await fetchProjectEndpoint(`${API_BASE}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...projectAuthorizationHeaders() },
+    body: JSON.stringify(project),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const error = new Error(typeof detail?.detail === 'string' ? detail.detail : `Không thể lưu dự án (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  const saved = await response.json();
+  if (saved.id !== project.id) throw new Error('Máy chủ trả về mã dự án không khớp.');
+  return saved;
+}
 
 export const SAATY_SCALE_LABELS = {
   1: "Quan trọng như nhau (1)",
@@ -29,9 +93,15 @@ export const SAATY_RI = {
   8: 1.41,
   9: 1.45,
   10: 1.49,
+  11: 1.51,
+  12: 1.48,
+  13: 1.56,
+  14: 1.57,
+  15: 1.59,
 };
 
 export async function evaluateMatrixAPI(elements, matrix) {
+  if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
   try {
     const res = await fetch(`${API_BASE}/ahp/evaluate-matrix`, {
       method: "POST",
@@ -39,6 +109,7 @@ export async function evaluateMatrixAPI(elements, matrix) {
       body: JSON.stringify({ elements, matrix, method: "eigenvector" }),
     });
     if (res.ok) return await res.json();
+    if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Backend API unavailable, using local calculation", err);
   }
@@ -46,6 +117,7 @@ export async function evaluateMatrixAPI(elements, matrix) {
 }
 
 export async function benchmarkMethodsAPI(elements, matrix) {
+  if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
   try {
     const res = await fetch(`${API_BASE}/ahp/benchmark-methods`, {
       method: "POST",
@@ -53,6 +125,7 @@ export async function benchmarkMethodsAPI(elements, matrix) {
       body: JSON.stringify({ elements, matrix }),
     });
     if (res.ok) return await res.json();
+    if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Benchmark API error", err);
   }
@@ -74,6 +147,7 @@ export async function completeMissingAPI(elements, matrix) {
 }
 
 export async function synthesizeHierarchyAPI(project) {
+  if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
   try {
     const res = await fetch(`${API_BASE}/ahp/synthesize`, {
       method: "POST",
@@ -88,6 +162,7 @@ export async function synthesizeHierarchyAPI(project) {
       }),
     });
     if (res.ok) return await res.json();
+    if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Synthesis API error, using local calculation", err);
   }
@@ -95,6 +170,7 @@ export async function synthesizeHierarchyAPI(project) {
 }
 
 export async function getGradientSensitivityAPI(project, selectedCriterion) {
+  if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
   try {
     const res = await fetch(`${API_BASE}/ahp/gradient-sensitivity`, {
       method: "POST",
@@ -130,6 +206,7 @@ export async function runHybridTopsisAPI(payload) {
 }
 
 export async function exportExcelAPI(project) {
+  if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return false;
   try {
     const res = await fetch(`${API_BASE}/export/excel`, {
       method: "POST",
@@ -171,6 +248,7 @@ export async function importFileAPI(file) {
 }
 
 export async function runMonteCarloAPI(project, numSimulations = 1000, perturbationPct = 0.20) {
+  if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
   try {
     const res = await fetch(`${API_BASE}/ahp/monte-carlo`, {
       method: "POST",
@@ -186,6 +264,7 @@ export async function runMonteCarloAPI(project, numSimulations = 1000, perturbat
       }),
     });
     if (res.ok) return await res.json();
+    if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Monte Carlo API error, using local simulation fallback", err);
   }
@@ -266,7 +345,11 @@ function evaluateMatrixLocal(elements, matrix) {
   }
 
   let w = new Array(n).fill(1 / n);
-  for (let iter = 0; iter < 100; iter++) {
+  if (n === 2) {
+    const value = matrix[0][1];
+    w = [value / (1 + value), 1 / (1 + value)];
+  }
+  for (let iter = 0; n > 2 && iter < 200; iter++) {
     const wNext = new Array(n).fill(0);
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) wNext[i] += matrix[i][j] * w[j];
@@ -277,7 +360,7 @@ function evaluateMatrixLocal(elements, matrix) {
     let diff = 0;
     for (let i = 0; i < n; i++) diff = Math.max(diff, Math.abs(wNext[i] - w[i]));
     w = wNext;
-    if (diff < 1e-6) break;
+    if (diff < 1e-7) break;
   }
 
   let lambdaSum = 0;
@@ -286,10 +369,10 @@ function evaluateMatrixLocal(elements, matrix) {
     for (let j = 0; j < n; j++) aw_i += matrix[i][j] * w[j];
     lambdaSum += aw_i / w[i];
   }
-  const lambda_max = lambdaSum / n;
+  const lambda_max = n === 2 ? 2 : lambdaSum / n;
   const ci = n > 1 ? Math.max(0, (lambda_max - n) / (n - 1)) : 0;
-  const ri = SAATY_RI[n] || 1.49;
-  const cr = ri > 0 ? ci / ri : 0;
+  const ri = SAATY_RI[n] ?? 1.59;
+  const cr = ri > 0 && n > 2 ? ci / ri : 0;
 
   const deviations = [];
   for (let i = 0; i < n; i++) {
@@ -319,10 +402,10 @@ function evaluateMatrixLocal(elements, matrix) {
     elements,
     weights: weightsDict,
     weights_list: w,
-    lambda_max: Math.round(lambda_max * 1000) / 1000,
-    consistency_index: Math.round(ci * 1000) / 1000,
+    lambda_max: Math.round(lambda_max * 10000) / 10000,
+    consistency_index: Math.round(ci * 10000) / 10000,
     random_index: ri,
-    consistency_ratio: Math.round(cr * 1000) / 1000,
+    consistency_ratio: Math.round(cr * 10000) / 10000,
     is_consistent: cr < 0.1,
     inconsistency_diagnosis: deviations,
   };
@@ -362,6 +445,16 @@ function evaluateLocalSynthesis(project) {
   const ranked = [...breakdown].sort((a, b) => b.score - a.score);
   ranked.forEach((item, idx) => { item.rank = idx + 1; });
 
+  // Match AHPHierarchy._compute_overall_cr in the backend: weighted CI / RI.
+  let totalCi = critEval.consistency_index;
+  let totalRi = critEval.random_index;
+  project.criteria.forEach((criterion, index) => {
+    const weight = critEval.weights_list[index];
+    totalCi += weight * altEvals[criterion].consistency_index;
+    totalRi += weight * altEvals[criterion].random_index;
+  });
+  const overallCr = totalRi > 0 ? totalCi / totalRi : 0;
+
   return {
     goal: project.goal,
     criteria: project.criteria,
@@ -370,8 +463,8 @@ function evaluateLocalSynthesis(project) {
     alternatives_evaluation: altEvals,
     rankings: ranked,
     breakdown,
-    overall_consistency_ratio: critEval.consistency_ratio,
-    is_overall_consistent: critEval.is_consistent,
+    overall_consistency_ratio: Math.round(overallCr * 10000) / 10000,
+    is_overall_consistent: overallCr < 0.10,
   };
 }
 

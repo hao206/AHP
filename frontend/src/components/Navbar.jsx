@@ -1,8 +1,9 @@
-import React from 'react';
-import { 
-  Download, RefreshCw, FileSpreadsheet, ShieldCheck, 
-  CheckCircle2, ChevronRight, FolderOpen, UploadCloud
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faDownload, faArrowsRotate, faFileExcel,
+  faCircleCheck, faCloudArrowUp, faFloppyDisk
+} from '@fortawesome/free-solid-svg-icons';
 
 export default function Navbar({
   currentStep,
@@ -16,8 +17,14 @@ export default function Navbar({
   onOpenImport,
   onExportJSON,
   onExportExcel,
-  isExportingExcel
+  isExportingExcel,
+  saveStatus = 'pending',
+  onSaveProject,
+  onConnectProject,
+  missingComparisonCount = 0,
+  invalidComparisonCount = 0
 }) {
+  const [accessToken, setAccessToken] = useState('');
   const steps = [
     { id: 1, label: 'Mô hình Thứ bậc', stepNum: '01' },
     { id: 2, label: 'So sánh Cặp', stepNum: '02' },
@@ -28,6 +35,14 @@ export default function Navbar({
 
   const customKeys = Object.keys(customTemplates);
   const builtInKeys = Object.keys(builtInTemplates);
+  const saveStatusText = {
+    restoring: 'Đang khôi phục dự án…',
+    pending: 'Có thay đổi chưa đồng bộ',
+    saving: 'Đang lưu dự án…',
+    saved: 'Đã lưu trên máy chủ',
+    local: 'Đã giữ bản nháp trên máy; máy chủ chưa kết nối',
+    auth: 'Cần mã truy cập để lưu dự án',
+  }[saveStatus];
 
   return (
     <header className="glass-panel" style={{ margin: '1rem 1.5rem', padding: '0.85rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
@@ -54,6 +69,8 @@ export default function Navbar({
           return (
             <button
               key={step.id}
+              disabled={step.id >= 3 && (missingComparisonCount > 0 || invalidComparisonCount > 0)}
+              title={step.id >= 3 && (missingComparisonCount > 0 || invalidComparisonCount > 0) ? `Cần hoàn thành ${missingComparisonCount} cặp còn thiếu và sửa ${invalidComparisonCount} lỗi ma trận trước khi xem kết quả.` : undefined}
               onClick={() => setCurrentStep(step.id)}
               style={{
                 display: 'inline-flex',
@@ -63,7 +80,7 @@ export default function Navbar({
                 borderRadius: '8px',
                 fontSize: '0.8rem',
                 fontWeight: '600',
-                cursor: 'pointer',
+                cursor: step.id >= 3 && (missingComparisonCount > 0 || invalidComparisonCount > 0) ? 'not-allowed' : 'pointer',
                 whiteSpace: 'nowrap',
                 userSelect: 'none',
                 transition: 'background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s',
@@ -108,7 +125,7 @@ export default function Navbar({
                   ? 'var(--success)' 
                   : 'var(--text-muted)'
               }}>
-                {isDone ? <CheckCircle2 size={13} color="var(--success)" /> : step.stepNum}
+                {isDone ? <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: '12px', color: 'var(--success)' }} /> : step.stepNum}
               </span>
               <span>{step.label}</span>
             </button>
@@ -118,6 +135,37 @@ export default function Navbar({
 
       {/* Action Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span role="status" style={{ fontSize: '0.72rem', color: saveStatus === 'local' ? '#fbbf24' : 'var(--text-muted)', maxWidth: '190px' }}>
+          {saveStatusText}
+        </span>
+        <button
+          onClick={onSaveProject}
+          disabled={saveStatus === 'restoring'}
+          className="btn btn-secondary"
+          style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem' }}
+          title="Lưu ngay dự án đang chỉnh sửa"
+        >
+          <FontAwesomeIcon icon={faFloppyDisk} style={{ fontSize: '12px' }} /> Lưu dự án
+        </button>
+        {saveStatus === 'auth' && (
+          <form onSubmit={event => {
+            event.preventDefault();
+            if (!accessToken.trim()) return;
+            onConnectProject(accessToken);
+            setAccessToken('');
+          }} style={{ display: 'flex', gap: '0.35rem' }}>
+            <input
+              type="password"
+              autoComplete="off"
+              aria-label="Mã truy cập dự án"
+              placeholder="Mã truy cập dự án"
+              value={accessToken}
+              onChange={event => setAccessToken(event.target.value)}
+              style={{ maxWidth: '150px' }}
+            />
+            <button type="submit" className="btn btn-secondary" disabled={!accessToken.trim()}>Kết nối</button>
+          </form>
+        )}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <select 
             onChange={(e) => {
@@ -178,7 +226,7 @@ export default function Navbar({
           }}
           title="Tải lên tệp Excel, CSV hoặc JSON để phân tích cá nhân hóa"
         >
-          <UploadCloud size={14} color="var(--accent-cyan)" /> Nhập Tệp
+          <FontAwesomeIcon icon={faCloudArrowUp} style={{ fontSize: '13px', color: 'var(--accent-cyan)' }} /> Nhập Tệp
         </button>
 
         <button 
@@ -187,26 +235,26 @@ export default function Navbar({
           style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem' }}
           title="Khởi tạo lại dự án mẫu mặc định"
         >
-          <RefreshCw size={13} /> Khởi Tạo Lại
+          <FontAwesomeIcon icon={faArrowsRotate} style={{ fontSize: '12px' }} /> Khởi Tạo Lại
         </button>
 
         <button 
           onClick={onExportExcel}
-          disabled={isExportingExcel}
+          disabled={isExportingExcel || missingComparisonCount > 0 || invalidComparisonCount > 0}
           className="btn btn-primary"
           style={{ padding: '0.45rem 0.85rem', fontSize: '0.8rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 2px 10px rgba(16, 185, 129, 0.3)' }}
-          title="Tải xuống báo cáo Excel đầy đủ"
+          title={missingComparisonCount > 0 || invalidComparisonCount > 0 ? `Còn ${missingComparisonCount} cặp chưa trả lời và ${invalidComparisonCount} lỗi ma trận.` : 'Tải xuống báo cáo Excel đầy đủ'}
         >
-          <FileSpreadsheet size={14} /> {isExportingExcel ? 'Đang xuất...' : 'Xuất Excel'}
+          <FontAwesomeIcon icon={faFileExcel} style={{ fontSize: '13px' }} /> {isExportingExcel ? 'Đang xuất...' : 'Xuất Excel'}
         </button>
 
         <button 
           onClick={onExportJSON}
           className="btn btn-secondary"
           style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem' }}
-          title="Tải xuống tệp sao lưu JSON"
+          title="Sao lưu dữ liệu dự án JSON, kể cả khi chưa hoàn thành các cặp so sánh"
         >
-          <Download size={13} /> Xuất JSON
+          <FontAwesomeIcon icon={faDownload} style={{ fontSize: '12px' }} /> Sao lưu JSON
         </button>
       </div>
     </header>

@@ -1,31 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  Sliders, RotateCcw, TrendingUp, ArrowLeft, Activity, 
-  Info, RefreshCw, ShieldCheck, AlertTriangle, Play, Zap, CheckCircle2
-} from 'lucide-react';
+  faSliders, faRotateLeft, faArrowTrendUp, faArrowLeft, faWaveSquare, 
+  faCircleInfo, faArrowsRotate, faShieldHalved, faTriangleExclamation, 
+  faPlay, faBolt, faStar
+} from '@fortawesome/free-solid-svg-icons';
 import { getGradientSensitivityAPI, runMonteCarloAPI } from '../utils/ahpClient';
 
 export default function SensitivityStep({ project, synthesisResult, onBack }) {
-  if (!synthesisResult || !project) {
-    return (
-      <div style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1.5rem', textAlign: 'center' }}>
-        <div className="glass-panel" style={{ padding: '3rem 2rem' }}>
-          <RefreshCw size={32} className="spinning" color="var(--accent-cyan)" style={{ margin: '0 auto 1rem auto' }} />
-          <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#ffffff', marginBottom: '0.5rem' }}>
-            Đang Tải Dữ Liệu Tổng Hợp Quyết Định...
-          </h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-            Vui lòng đợi hệ thống tổng hợp hoặc quay lại Bước 3 để hoàn tất ma trận so sánh cặp.
-          </p>
-          <button onClick={onBack} className="btn btn-secondary">
-            <ArrowLeft size={16} /> Quay Lại Bước 3
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const { criteria = [], alternatives = [], criteria_evaluation = {}, alternatives_evaluation = {}, rankings: baselineRankings = [] } = synthesisResult;
+  const { criteria = [], alternatives = [], criteria_evaluation = {}, alternatives_evaluation = {}, rankings: baselineRankings = [] } = synthesisResult || {};
 
   // Active sensitivity tab: 'dynamic' | 'gradient' | 'monte-carlo'
   const [activeTab, setActiveTab] = useState('dynamic');
@@ -285,6 +268,25 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
 
   }, [activeTab, gradientData, selectedCrit, alternatives, altColors]);
 
+  if (!synthesisResult || !project) {
+    return (
+      <div style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1.5rem', textAlign: 'center' }}>
+        <div className="glass-panel" style={{ padding: '3rem 2rem' }}>
+          <FontAwesomeIcon icon={faArrowsRotate} spin style={{ fontSize: '28px', color: 'var(--accent-cyan)', margin: '0 auto 1rem auto' }} />
+          <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#ffffff', marginBottom: '0.5rem' }}>
+            Đang Tải Dữ Liệu Tổng Hợp Quyết Định...
+          </h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+            Vui lòng đợi hệ thống tổng hợp hoặc quay lại Bước 3 để hoàn tất ma trận so sánh cặp.
+          </p>
+          <button onClick={onBack} className="btn btn-secondary">
+            <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: '14px', marginRight: '0.4rem' }} /> Quay Lại Bước 3
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 1.5rem 2rem 1.5rem', animation: 'fadeIn 0.3s ease-in-out' }}>
       
@@ -334,7 +336,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
               transition: 'all 0.2s'
             }}
           >
-            <Sliders size={15} /> Độ Nhạy Động Học
+            <FontAwesomeIcon icon={faSliders} style={{ fontSize: '13px' }} /> Độ Nhạy Động Học
           </button>
           <button
             type="button"
@@ -354,7 +356,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
               transition: 'all 0.2s'
             }}
           >
-            <TrendingUp size={15} /> Độ Nhạy Độ Dốc 2D
+            <FontAwesomeIcon icon={faArrowTrendUp} style={{ fontSize: '13px' }} /> Độ Nhạy Độ Dốc 2D
           </button>
           <button
             type="button"
@@ -374,14 +376,14 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
               transition: 'all 0.2s'
             }}
           >
-            <Activity size={15} /> Mô Phỏng Monte Carlo
+            <FontAwesomeIcon icon={faWaveSquare} style={{ fontSize: '13px' }} /> Mô Phỏng Monte Carlo
           </button>
         </div>
       </div>
 
       {/* Step 4 Introduction & Guidance Card */}
       <div className="glass-panel" style={{ padding: '1rem 1.4rem', marginBottom: '1.5rem', background: 'rgba(15, 23, 42, 0.55)', border: '1px solid rgba(6, 182, 212, 0.25)', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-        <Info size={18} color="var(--accent-cyan)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+        <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '16px', color: 'var(--accent-cyan)', flexShrink: 0, marginTop: '0.2rem' }} />
         <div style={{ fontSize: '0.82rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
           <strong style={{ color: '#ffffff' }}>Giới thiệu Bước 4 (Phân tích Độ nhạy & Mô phỏng Rủi ro):</strong> Kiểm tra khả năng chịu đựng sai số của quyết định khi các trọng số tiêu chí bị biến động. 
           Bao gồm 3 công cụ phòng thí nghiệm: 
@@ -413,7 +415,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
                 style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }}
                 title="Khôi phục về trọng số gốc của ma trận AHP"
               >
-                <RotateCcw size={13} style={{ marginRight: '0.3rem' }} /> Đặt Lại Gốc
+                <FontAwesomeIcon icon={faRotateLeft} style={{ fontSize: '12px', marginRight: '0.3rem' }} /> Đặt Lại Gốc
               </button>
             </div>
 
@@ -460,7 +462,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
           <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
             <div style={{ marginBottom: '1.2rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Zap size={16} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faBolt} style={{ fontSize: '15px', color: 'var(--accent-cyan)' }} />
                 <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
                   Thứ Hạng Phương Án Tức Thời
                 </h3>
@@ -540,7 +542,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
             </div>
 
             <div style={{ marginTop: '1.2rem', padding: '0.8rem 1rem', borderRadius: '8px', background: 'rgba(6, 182, 212, 0.06)', border: '1px solid rgba(6, 182, 212, 0.2)', display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-              <Info size={16} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
+              <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '15px', color: 'var(--accent-cyan)', flexShrink: 0 }} />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                 Nếu phương án quán quân vẫn giữ vị trí đầu bảng khi dao động trọng số trong khoảng ±10%, quyết định có tính ổn định cao.
               </span>
@@ -586,7 +588,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
             
             {isLoadingGradient && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--accent-cyan)' }}>
-                <RefreshCw size={14} className="spinning" /> Đang vẽ biểu đồ độ dốc...
+                <FontAwesomeIcon icon={faArrowsRotate} spin style={{ fontSize: '13px' }} /> Đang vẽ biểu đồ độ dốc...
               </div>
             )}
           </div>
@@ -631,7 +633,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
             {gradientData?.crossovers && gradientData.crossovers.length > 0 && (
               <div style={{ marginTop: '1.2rem', padding: '1rem', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <AlertTriangle size={16} color="#f59e0b" />
+                  <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '15px', color: '#f59e0b' }} />
                   <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#fbbf24' }}>
                     Các Ngưỡng Đảo Chiều Thứ Hạng (Crossover Points / Critical Thresholds):
                   </span>
@@ -659,7 +661,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Activity size={18} color="var(--accent-cyan)" />
+                  <FontAwesomeIcon icon={faWaveSquare} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
                   <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', margin: 0 }}>
                     Mô Phỏng Độ Vững Chắc Quyết Định Bằng Monte Carlo
                   </h3>
@@ -742,11 +744,11 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
                 >
                   {isSimulating ? (
                     <>
-                      <RefreshCw size={14} className="spinning" /> Đang Tính Toán...
+                      <FontAwesomeIcon icon={faArrowsRotate} spin style={{ fontSize: '13px' }} /> Đang Tính Toán...
                     </>
                   ) : (
                     <>
-                      <Play size={14} /> Chạy Lại Mô Phỏng
+                      <FontAwesomeIcon icon={faPlay} style={{ fontSize: '12px' }} /> Chạy Lại Mô Phỏng
                     </>
                   )}
                 </button>
@@ -783,7 +785,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
                 gap: '0.4rem',
                 boxShadow: '0 4px 15px rgba(6, 182, 212, 0.4)'
               }}>
-                <RefreshCw size={13} className="spinning" /> Đang chạy {mcIterations.toLocaleString()} kịch bản...
+                <FontAwesomeIcon icon={faArrowsRotate} spin style={{ fontSize: '12px' }} /> Đang chạy {mcIterations.toLocaleString()} kịch bản...
               </div>
             )}
 
@@ -815,9 +817,9 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
                     flexShrink: 0
                   }}>
                     {monteCarloResult.is_highly_robust ? (
-                      <ShieldCheck size={26} color="#10b981" />
+                      <FontAwesomeIcon icon={faShieldHalved} style={{ fontSize: '24px', color: '#10b981' }} />
                     ) : (
-                      <AlertTriangle size={26} color="#f59e0b" />
+                      <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '24px', color: '#f59e0b' }} />
                     )}
                   </div>
                   <div style={{ flex: 1 }}>
@@ -876,7 +878,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
                             borderBottomLeftRadius: '8px',
                             textTransform: 'uppercase'
                           }}>
-                            ★ Phương Án Tối Ưu
+                            <FontAwesomeIcon icon={faStar} style={{ color: '#f59e0b', marginRight: '0.35rem' }} /> Phương Án Tối Ưu
                           </div>
                         )}
 
@@ -951,7 +953,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
               </div>
             ) : (
               <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center' }}>
-                <RefreshCw size={28} className="spinning" color="var(--accent-cyan)" style={{ margin: '0 auto 0.8rem auto' }} />
+                <FontAwesomeIcon icon={faArrowsRotate} spin style={{ fontSize: '26px', color: 'var(--accent-cyan)', margin: '0 auto 0.8rem auto', display: 'block' }} />
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Đang khởi tạo các kịch bản mô phỏng ngẫu nhiên...</p>
               </div>
             )}
@@ -960,7 +962,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
 
           {/* Educational Note */}
           <div className="glass-panel" style={{ padding: '1.2rem', background: 'rgba(15, 23, 42, 0.4)', display: 'flex', gap: '0.8rem', alignItems: 'flex-start' }}>
-            <Info size={18} color="var(--accent-cyan)" style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+            <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '18px', color: 'var(--accent-cyan)', flexShrink: 0, marginTop: '0.1rem' }} />
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
               <strong style={{ color: '#ffffff' }}>Ý nghĩa phương pháp luận Monte Carlo trong AHP:</strong> Kiểm định sự vững vàng của quyết định trước những sai số ước lượng trọng số giữa các chuyên gia. Nếu xác suất dẫn đầu đạt trên 70%, kết quả có độ vững chắc cao, đủ cơ sở để triển khai thực tế.
             </div>
@@ -976,7 +978,7 @@ export default function SensitivityStep({ project, synthesisResult, onBack }) {
           className="btn btn-secondary"
           style={{ padding: '0.65rem 1.2rem' }}
         >
-          <ArrowLeft size={16} /> Quay Lại Bước 3: Tổng Hợp Kết Quả & Radar
+          <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: '14px', marginRight: '0.4rem' }} /> Quay Lại Bước 3: Tổng Hợp Kết Quả & Radar
         </button>
       </div>
 

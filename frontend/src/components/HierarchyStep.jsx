@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  Target, Layers, Award, Plus, Trash2, ArrowRight, GitBranch, 
-  Edit2, Check, X, BookmarkPlus, FileText, ListPlus, RefreshCw, Info
-} from 'lucide-react';
+  faBullseye, faLayerGroup, faAward, faPlus, faTrashCan, faArrowRight, 
+  faSitemap, faPenToSquare, faCheck, faXmark, faBookmark, faListCheck, 
+  faArrowsRotate, faCircleInfo, faCircleCheck, faBolt
+} from '@fortawesome/free-solid-svg-icons';
+import { getDecisionMatrix, getCriterionTypes } from '../utils/topsisData.js';
 
 export default function HierarchyStep({ 
   project, 
@@ -43,19 +46,21 @@ export default function HierarchyStep({
       Array(n).fill(0).map((_, j) => {
         if (i === j) return 1.0;
         if (i < n - 1 && j < n - 1) return project.criteria_matrix[i][j];
-        return 1.0;
+        return null;
       })
     );
 
     const altN = project.alternatives.length;
     const newAltMatrix = Array(altN).fill(0).map((_, i) => 
-      Array(altN).fill(0).map((_, j) => (i === j ? 1.0 : 1.0))
+      Array(altN).fill(0).map((_, j) => (i === j ? 1.0 : null))
     );
 
     setProject({
       ...project,
       criteria: updatedCrit,
       criteria_matrix: newCritMatrix,
+      data_matrix: getDecisionMatrix(project, project.alternatives, project.criteria).map(row => [...row, null]),
+      criterion_types: [...getCriterionTypes(project, project.criteria), getCriterionTypes({}, [name])[0]],
       alt_matrices: {
         ...project.alt_matrices,
         [name]: newAltMatrix
@@ -84,6 +89,8 @@ export default function HierarchyStep({
       ...project,
       criteria: updatedCrit,
       criteria_matrix: newCritMatrix,
+      data_matrix: getDecisionMatrix(project, project.alternatives, project.criteria).map(row => row.filter((_, col) => col !== index)),
+      criterion_types: getCriterionTypes(project, project.criteria).filter((_, col) => col !== index),
       alt_matrices: newAltMatrices
     });
   };
@@ -131,7 +138,7 @@ export default function HierarchyStep({
         Array(n).fill(0).map((_, j) => {
           if (i === j) return 1.0;
           if (i < n - 1 && j < n - 1 && oldMat[i] && oldMat[i][j]) return oldMat[i][j];
-          return 1.0;
+          return null;
         })
       );
     }
@@ -139,6 +146,7 @@ export default function HierarchyStep({
     setProject({
       ...project,
       alternatives: updatedAlt,
+      data_matrix: [...getDecisionMatrix(project, project.alternatives, project.criteria), project.criteria.map(() => null)],
       alt_matrices: newAltMatrices
     });
     setNewAlt('');
@@ -161,6 +169,7 @@ export default function HierarchyStep({
     setProject({
       ...project,
       alternatives: updatedAlt,
+      data_matrix: getDecisionMatrix(project, project.alternatives, project.criteria).filter((_, row) => row !== index),
       alt_matrices: newAltMatrices
     });
   };
@@ -208,13 +217,13 @@ export default function HierarchyStep({
     const nAlt = uniqueAlt.length;
 
     const critMatrix = Array(nCrit).fill(0).map((_, i) => 
-      Array(nCrit).fill(0).map((_, j) => (i === j ? 1.0 : 1.0))
+      Array(nCrit).fill(0).map((_, j) => (i === j ? 1.0 : null))
     );
 
     const altMatrices = {};
     for (const c of uniqueCrit) {
       altMatrices[c] = Array(nAlt).fill(0).map((_, i) => 
-        Array(nAlt).fill(0).map((_, j) => (i === j ? 1.0 : 1.0))
+        Array(nAlt).fill(0).map((_, j) => (i === j ? 1.0 : null))
       );
     }
 
@@ -225,6 +234,8 @@ export default function HierarchyStep({
       criteria: uniqueCrit,
       alternatives: uniqueAlt,
       criteria_matrix: critMatrix,
+      data_matrix: uniqueAlt.map(() => uniqueCrit.map(() => null)),
+      criterion_types: getCriterionTypes({}, uniqueCrit),
       alt_matrices: altMatrices
     });
 
@@ -236,7 +247,7 @@ export default function HierarchyStep({
     if (!onSaveCustomTemplate) return;
     const name = customTemplateName.trim() || project.title || 'Mẫu Cá Nhân Mới';
     onSaveCustomTemplate(name);
-    setSaveSuccessMsg(`✓ Đã lưu thành công mẫu "${name}" vào bộ nhớ của bạn!`);
+    setSaveSuccessMsg(`Đã lưu thành công mẫu "${name}" vào bộ nhớ của bạn!`);
     setTimeout(() => {
       setSaveSuccessMsg('');
       setShowSaveModal(false);
@@ -285,7 +296,7 @@ export default function HierarchyStep({
               style={{ padding: '0.5rem 0.9rem', fontSize: '0.85rem' }}
               title="Dán nhanh danh sách tiêu chí và phương án hàng loạt"
             >
-              <ListPlus size={15} color="var(--accent-cyan)" /> Nhập Danh Sách Hàng Loạt
+              <FontAwesomeIcon icon={faListCheck} style={{ fontSize: '13px', color: 'var(--accent-cyan)' }} /> Nhập Danh Sách Hàng Loạt
             </button>
 
             <button
@@ -297,7 +308,7 @@ export default function HierarchyStep({
               style={{ padding: '0.5rem 0.9rem', fontSize: '0.85rem' }}
               title="Lưu cấu trúc hiện tại thành mẫu cá nhân của bạn"
             >
-              <BookmarkPlus size={15} /> Lưu Mẫu Cá Nhân
+              <FontAwesomeIcon icon={faBookmark} style={{ fontSize: '13px' }} /> Lưu Mẫu Cá Nhân
             </button>
 
             <button
@@ -306,14 +317,14 @@ export default function HierarchyStep({
               style={{ padding: '0.5rem 0.9rem', fontSize: '0.85rem' }}
               title="Tạo mô hình trống để thiết lập từ đầu"
             >
-              <RefreshCw size={14} /> Tạo Mẫu Trống
+              <FontAwesomeIcon icon={faArrowsRotate} style={{ fontSize: '13px' }} /> Tạo Mẫu Trống
             </button>
           </div>
         </div>
 
         {/* Step 1 Introduction & Guidance Card */}
         <div className="glass-panel" style={{ padding: '1rem 1.4rem', background: 'rgba(15, 23, 42, 0.55)', border: '1px solid rgba(6, 182, 212, 0.25)', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-          <Info size={18} color="var(--accent-cyan)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '16px', color: 'var(--accent-cyan)', flexShrink: 0, marginTop: '0.2rem' }} />
           <div style={{ fontSize: '0.82rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
             <strong style={{ color: '#ffffff' }}>Giới thiệu Bước 1 (Mô hình Thứ bậc AHP):</strong> Phương pháp Phân tích Thứ bậc (AHP) phân rã bài toán quyết định phức tạp thành cấu trúc 3 tầng: 
             <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}> Mục tiêu tối thượng (Goal)</span> → 
@@ -328,11 +339,11 @@ export default function HierarchyStep({
           <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--accent-primary)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <BookmarkPlus size={18} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faBookmark} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '700' }}>Lưu Mô Hình Thành Mẫu Cá Nhân</h3>
               </div>
               <button onClick={() => setShowSaveModal(false)} className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem' }}>
-                <X size={16} />
+                <FontAwesomeIcon icon={faXmark} style={{ fontSize: '14px' }} />
               </button>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
@@ -360,8 +371,8 @@ export default function HierarchyStep({
               </button>
             </div>
             {saveSuccessMsg && (
-              <div style={{ marginTop: '0.75rem', color: 'var(--success)', fontWeight: '600', fontSize: '0.85rem' }}>
-                {saveSuccessMsg}
+              <div style={{ marginTop: '0.75rem', color: 'var(--success)', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <FontAwesomeIcon icon={faCircleCheck} /> {saveSuccessMsg}
               </div>
             )}
           </div>
@@ -372,11 +383,11 @@ export default function HierarchyStep({
           <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--accent-cyan)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Zap size={20} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faBolt} style={{ fontSize: '18px', color: 'var(--accent-cyan)' }} />
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '700' }}>Nhập Nhanh Danh Sách Tiêu Chí & Phương Án (Hàng Loạt)</h3>
               </div>
               <button onClick={() => setShowBulkModal(false)} className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem' }}>
-                <X size={16} />
+                <FontAwesomeIcon icon={faXmark} style={{ fontSize: '14px' }} />
               </button>
             </div>
 
@@ -431,7 +442,7 @@ export default function HierarchyStep({
                   Hủy Bỏ
                 </button>
                 <button onClick={handleApplyBulk} className="btn btn-primary" style={{ padding: '0.6rem 1.4rem' }}>
-                  <Check size={15} /> Áp Dụng Cấu Trúc
+                  <FontAwesomeIcon icon={faCheck} style={{ fontSize: '13px' }} /> Áp Dụng Cấu Trúc
                 </button>
               </div>
             </div>
@@ -441,7 +452,7 @@ export default function HierarchyStep({
         {/* Goal Input Card */}
         <div className="glass-panel" style={{ padding: '1.5rem' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', fontWeight: '700', color: 'var(--accent-cyan)', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            <Target size={18} /> Mục Tiêu Quyết Định Chính (Goal)
+            <FontAwesomeIcon icon={faBullseye} style={{ fontSize: '16px' }} /> Mục Tiêu Quyết Định Chính (Goal)
           </label>
           <input
             type="text"
@@ -469,7 +480,7 @@ export default function HierarchyStep({
           <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Layers size={20} color="#818cf8" />
+                <FontAwesomeIcon icon={faLayerGroup} style={{ fontSize: '18px', color: '#818cf8' }} />
                 <h3 style={{ fontSize: '1.1rem' }}>Tiêu Chí Đánh Giá ({project.criteria.length})</h3>
               </div>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tối thiểu 2 tiêu chí</span>
@@ -493,7 +504,7 @@ export default function HierarchyStep({
                 }}
               />
               <button type="submit" className="btn btn-primary" style={{ padding: '0.55rem 0.9rem' }}>
-                <Plus size={16} /> Thêm
+                <FontAwesomeIcon icon={faPlus} style={{ fontSize: '13px' }} /> Thêm
               </button>
             </form>
 
@@ -563,7 +574,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: 'var(--success)' }}
                             title="Lưu tên mới"
                           >
-                            <Check size={14} />
+                            <FontAwesomeIcon icon={faCheck} style={{ fontSize: '12px' }} />
                           </button>
                           <button
                             onClick={() => setEditingCritIdx(null)}
@@ -571,7 +582,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                             title="Hủy"
                           >
-                            <X size={14} />
+                            <FontAwesomeIcon icon={faXmark} style={{ fontSize: '12px' }} />
                           </button>
                         </>
                       ) : (
@@ -585,7 +596,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.45rem', borderRadius: '6px' }}
                             title="Đổi tên tiêu chí"
                           >
-                            <Edit2 size={13} />
+                            <FontAwesomeIcon icon={faPenToSquare} style={{ fontSize: '12px' }} />
                           </button>
                           <button 
                             onClick={() => handleRemoveCriterion(idx)}
@@ -593,7 +604,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.45rem', borderRadius: '6px' }}
                             title="Xóa tiêu chí"
                           >
-                            <Trash2 size={13} />
+                            <FontAwesomeIcon icon={faTrashCan} style={{ fontSize: '12px' }} />
                           </button>
                         </>
                       )}
@@ -608,7 +619,7 @@ export default function HierarchyStep({
           <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Award size={20} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faAward} style={{ fontSize: '18px', color: 'var(--accent-cyan)' }} />
                 <h3 style={{ fontSize: '1.1rem' }}>Phương Án Lựa Chọn ({project.alternatives.length})</h3>
               </div>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Tối thiểu 2 phương án</span>
@@ -632,7 +643,7 @@ export default function HierarchyStep({
                 }}
               />
               <button type="submit" className="btn btn-primary" style={{ padding: '0.55rem 0.9rem' }}>
-                <Plus size={16} /> Thêm
+                <FontAwesomeIcon icon={faPlus} style={{ fontSize: '13px' }} /> Thêm
               </button>
             </form>
 
@@ -702,7 +713,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: 'var(--success)' }}
                             title="Lưu tên mới"
                           >
-                            <Check size={14} />
+                            <FontAwesomeIcon icon={faCheck} style={{ fontSize: '12px' }} />
                           </button>
                           <button
                             onClick={() => setEditingAltIdx(null)}
@@ -710,7 +721,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                             title="Hủy"
                           >
-                            <X size={14} />
+                            <FontAwesomeIcon icon={faXmark} style={{ fontSize: '12px' }} />
                           </button>
                         </>
                       ) : (
@@ -724,7 +735,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.45rem', borderRadius: '6px' }}
                             title="Đổi tên phương án"
                           >
-                            <Edit2 size={13} />
+                            <FontAwesomeIcon icon={faPenToSquare} style={{ fontSize: '12px' }} />
                           </button>
                           <button 
                             onClick={() => handleRemoveAlternative(idx)}
@@ -732,7 +743,7 @@ export default function HierarchyStep({
                             style={{ padding: '0.25rem 0.45rem', borderRadius: '6px' }}
                             title="Xóa phương án"
                           >
-                            <Trash2 size={13} />
+                            <FontAwesomeIcon icon={faTrashCan} style={{ fontSize: '12px' }} />
                           </button>
                         </>
                       )}
@@ -748,7 +759,7 @@ export default function HierarchyStep({
         <div className="glass-panel" style={{ padding: '1.75rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h3 style={{ fontSize: '0.95rem', color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-              <GitBranch size={17} color="var(--accent-cyan)" />
+              <FontAwesomeIcon icon={faSitemap} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
               SƠ ĐỒ PHÂN CẤP QUYẾT ĐỊNH THỨ BẬC (AHP HIERARCHY TREE)
             </h3>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -862,7 +873,7 @@ export default function HierarchyStep({
             className="btn btn-primary"
             style={{ padding: '0.75rem 1.8rem', fontSize: '0.95rem' }}
           >
-            Chuyển sang Bước 2: Đánh Giá So Sánh Cặp <ArrowRight size={18} />
+            Chuyển sang Bước 2: Đánh Giá So Sánh Cặp <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '15px', marginLeft: '0.4rem' }} />
           </button>
         </div>
 

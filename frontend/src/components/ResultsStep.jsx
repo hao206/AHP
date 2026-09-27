@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Award, ArrowRight, ArrowLeft, BarChart3, Compass, CheckCircle2, TrendingUp, ShieldCheck, Zap, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faAward, faArrowRight, faArrowLeft, faCompass, faCircleInfo, faTrophy } from '@fortawesome/free-solid-svg-icons';
 import confetti from 'canvas-confetti';
 
 export default function ResultsStep({ project, synthesisResult, onProceed, onBack }) {
@@ -233,7 +234,7 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
 
         {/* Step 3 Introduction & Guidance Card */}
         <div className="glass-panel" style={{ padding: '1rem 1.4rem', background: 'rgba(15, 23, 42, 0.55)', border: '1px solid rgba(6, 182, 212, 0.25)', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-          <Info size={18} color="var(--accent-cyan)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '16px', color: 'var(--accent-cyan)', flexShrink: 0, marginTop: '0.2rem' }} />
           <div style={{ fontSize: '0.82rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
             <strong style={{ color: '#ffffff' }}>Giới thiệu Bước 3 (Tổng hợp Kết quả & Biểu đồ Radar):</strong> Hệ thống thực hiện nhân chập vector trọng số tiêu chí với ma trận ưu tiên cục bộ của các phương án để cho ra <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>Điểm số Tổng hợp Cuối cùng (Overall Priorities)</span>. 
             Bạn có thể theo dõi phương án quán quân, kiểm tra mức độ cách biệt so với vị trí thứ 2, đánh giá tính nhất quán toàn cục của cả mô hình (Overall CR), và so sánh trực quan thế mạnh từng ứng viên trên biểu đồ mạng nhện đa giác.
@@ -250,8 +251,8 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
             <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#ffffff', marginTop: '0.3rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {bestAlt?.alternative}
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.2rem' }}>
-              <Award size={14} /> Lựa chọn Hạng #1
+            <div style={{ fontSize: '0.8rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
+              <FontAwesomeIcon icon={faTrophy} style={{ fontSize: '12px' }} /> Lựa chọn Hạng #1
             </div>
           </div>
 
@@ -299,7 +300,7 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
           {/* Alternatives Ranking List */}
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Award size={20} color="var(--accent-cyan)" />
+              <FontAwesomeIcon icon={faAward} style={{ fontSize: '18px', color: 'var(--accent-cyan)' }} />
               Bảng Xếp Hạng Phương Án Quyết Định
             </h3>
 
@@ -361,7 +362,7 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
           <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
               <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Compass size={20} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faCompass} style={{ fontSize: '18px', color: 'var(--accent-cyan)' }} />
                 Biểu Đồ Radar Hồ Sơ Đa Tiêu Chí
               </h3>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Bấm chú thích để ẩn/hiện</span>
@@ -466,7 +467,7 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
             className="btn btn-secondary"
             style={{ padding: '0.75rem 1.4rem' }}
           >
-            <ArrowLeft size={16} /> Quay lại Bước 2: So Sánh Cặp
+            <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: '14px', marginRight: '0.4rem' }} /> Quay lại Bước 2: So Sánh Cặp
           </button>
 
           <button 
@@ -474,7 +475,7 @@ export default function ResultsStep({ project, synthesisResult, onProceed, onBac
             className="btn btn-primary"
             style={{ padding: '0.75rem 1.8rem', fontSize: '0.95rem' }}
           >
-            Mở Phòng Phân Tích Độ Nhạy (Động & Đồ Thị) <ArrowRight size={18} />
+            Mở Phòng Phân Tích Độ Nhạy (Động & Đồ Thị) <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '15px', marginLeft: '0.4rem' }} />
           </button>
         </div>
 

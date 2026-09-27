@@ -12,11 +12,13 @@ import io
 import json
 import uuid
 import re
+import math
 from typing import Dict, Any, List, Tuple
 import numpy as np
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from core.matrix_validation import validate_pairwise_matrix
 
 COST_KEYWORDS = [
     'cost', 'chi phí', 'giá', 'price', 'lỗi', 'error', 'defect',
@@ -35,6 +37,53 @@ def clean_element_name(name: Any) -> str:
     s = str(name).strip()
     s = re.sub(r'\[(benefit|cost|lợi ích|chi phí)\]', '', s, flags=re.IGNORECASE).strip()
     return s if s else "Element"
+
+
+def unanswered_matrix(size: int) -> List[List[float | None]]:
+    """Keep unentered judgments distinct from an explicit equal-importance vote."""
+    return [[1.0 if i == j else None for j in range(size)] for i in range(size)]
+
+
+def parse_ahpos_hierarchy(text: str) -> tuple[str, List[str]]:
+    """Read the flat root branch supported by this application's hierarchy."""
+    branches = [branch.strip() for branch in text.split(';') if branch.strip()]
+    if len(branches) != 1 or ':' not in branches[0]:
+        raise ValueError("AHP-OS import supports one flat criteria branch; nested hierarchies cannot be represented.")
+    root, children = branches[0].split(':', 1)
+    root = root.strip()
+    criteria = [child.split('=', 1)[0].strip() for child in children.split(',')]
+    if not root or root in criteria or len(criteria) < 2 or any(not name for name in criteria) or len(set(criteria)) != len(criteria):
+        raise ValueError("AHP-OS hierarchy must contain a root and at least two unique criteria.")
+    return root, criteria
+
+
+def parse_ahpos_pwc(records: list, node: str, elements: List[str]) -> List[List[float | None]]:
+    """Decode AHP-OS's upper-triangle direction and intensity strings."""
+    pairs = [(i, j) for i in range(len(elements)) for j in range(i + 1, len(elements))]
+    judgments = [[] for _ in pairs]
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("AHP-OS pairwise comparison entry must be an object.")
+        directions, intensities = record.get('pwc_ab'), record.get('pwc_intense')
+        if (not isinstance(directions, str) or not isinstance(intensities, str)
+                or len(directions) != len(pairs) or len(intensities) != len(pairs)):
+            raise ValueError(f"AHP-OS node '{node}' has malformed comparison strings.")
+        for index, (direction, intensity) in enumerate(zip(directions, intensities)):
+            if direction not in '01' or intensity not in '0123456789':
+                raise ValueError(f"AHP-OS node '{node}' contains an invalid comparison code.")
+            if intensity == '0':
+                continue
+            value = float(intensity)
+            judgments[index].append(value if direction == '0' else 1.0 / value)
+
+    matrix = unanswered_matrix(len(elements))
+    for (i, j), values in zip(pairs, judgments):
+        if values:
+            # AHP-OS may export several participants; aggregate their signed
+            # ratios by the geometric mean, as its group workflow does.
+            ratio = values[0] if len(values) == 1 else math.exp(sum(math.log(value) for value in values) / len(values))
+            matrix[i][j], matrix[j][i] = ratio, 1.0 / ratio
+    return validate_pairwise_matrix(elements, matrix, allow_missing=True, label=f"AHP-OS {node}")
 
 def parse_uploaded_file(content: bytes, filename: str) -> Dict[str, Any]:
     """
@@ -73,15 +122,21 @@ def parse_json_file(content: bytes) -> Dict[str, Any]:
         criteria = [str(c).strip() for c in data.get("criteria", [])]
         alternatives = [str(a).strip() for a in data.get("alternatives", [])]
         pref = data.get("preferenceMatrices", {})
+        if not isinstance(pref, dict):
+            raise ValueError("pyAHP preferenceMatrices must be an object.")
         
-        crit_matrix = pref.get("criteria") or pref.get("criterion") or np.ones((len(criteria), len(criteria))).tolist()
+        crit_matrix = pref.get("criteria", pref.get("criterion"))
+        crit_matrix = validate_pairwise_matrix(
+            criteria, crit_matrix if crit_matrix is not None else unanswered_matrix(len(criteria)),
+            allow_missing=True, label="criteria_matrix"
+        )
         alt_matrices = {}
         for c in criteria:
-            sub = pref.get(f"alternatives:{c}") or pref.get(c)
-            if sub and len(sub) == len(alternatives):
-                alt_matrices[c] = sub
-            else:
-                alt_matrices[c] = np.ones((len(alternatives), len(alternatives))).tolist()
+            sub = pref.get(f"alternatives:{c}", pref.get(c))
+            alt_matrices[c] = validate_pairwise_matrix(
+                alternatives, sub if sub is not None else unanswered_matrix(len(alternatives)),
+                allow_missing=True, label=f"alt_matrices.{c}"
+            )
 
         return {
             "id": f"pyahp-{uuid.uuid4().hex[:8]}",
@@ -98,8 +153,11 @@ def parse_json_file(content: bytes) -> Dict[str, Any]:
     # 2. Check for AHP-OS format (Klaus Goepel)
     if "pj" in data and isinstance(data["pj"], list) and len(data["pj"]) > 0:
         pj_meta = data["pj"][0]
+        if not isinstance(pj_meta, dict):
+            raise ValueError("AHP-OS project metadata is invalid.")
         title = pj_meta.get("project_name", "Dự Án AHP-OS")
-        goal = pj_meta.get("project_description", "Mục Tiêu Đánh Giá AHP-OS")
+        root, criteria = parse_ahpos_hierarchy(pj_meta.get("project_hText", ""))
+        goal = root
         
         # Parse alternatives
         alts_raw = data.get("alt", [])
@@ -107,36 +165,32 @@ def parse_json_file(content: bytes) -> Dict[str, Any]:
         if isinstance(alts_raw, list):
             for a in alts_raw:
                 if isinstance(a, dict):
-                    alternatives.append(a.get("alt_name", "Phương án"))
+                    alternatives.append(str(a.get("alt", a.get("alt_name", ""))).strip())
                 elif isinstance(a, str):
-                    alternatives.append(a)
-        if len(alternatives) < 2:
-            alternatives = ["Phương án A", "Phương án B", "Phương án C"]
+                    alternatives.append(a.strip())
+        if len(alternatives) < 2 or any(not name for name in alternatives) or len(set(alternatives)) != len(alternatives):
+            raise ValueError("AHP-OS project must contain at least two unique alternatives.")
 
-        # Parse criteria from project_hText or pwc
-        criteria = []
-        h_text = pj_meta.get("project_hText", "")
-        if h_text:
-            lines = [l.strip() for l in h_text.strip().splitlines() if l.strip()]
-            for l in lines[1:]: # First line is usually the project title
-                c_name = re.sub(r'^[-\*\+\s]+', '', l).strip()
-                if c_name and c_name not in criteria:
-                    criteria.append(c_name)
-
-        if len(criteria) < 2:
-            criteria = ["Tiêu chí 1", "Tiêu chí 2", "Tiêu chí 3"]
-
-        n_c = len(criteria)
-        n_a = len(alternatives)
+        pwc = data.get("pwc", [])
+        if not isinstance(pwc, list):
+            raise ValueError("AHP-OS pairwise comparisons must be a list.")
+        by_node = {node: [] for node in [root, *criteria]}
+        for record in pwc:
+            if not isinstance(record, dict) or record.get("pwc_node") not in by_node:
+                raise ValueError("AHP-OS comparison references an unknown hierarchy node.")
+            by_node[record["pwc_node"]].append(record)
+        crit_matrix = parse_ahpos_pwc(by_node[root], root, criteria)
+        alt_matrices = {c: parse_ahpos_pwc(by_node[c], c, alternatives) for c in criteria}
 
         return {
             "id": f"ahpos-{uuid.uuid4().hex[:8]}",
             "title": title,
             "goal": goal,
+            "description": pj_meta.get("project_description", ""),
             "criteria": criteria,
             "alternatives": alternatives,
-            "criteria_matrix": np.ones((n_c, n_c)).tolist(),
-            "alt_matrices": {c: np.ones((n_a, n_a)).tolist() for c in criteria},
+            "criteria_matrix": crit_matrix,
+            "alt_matrices": alt_matrices,
             "imported_format": "AHP-OS (Klaus Goepel) Project JSON",
             "criterion_types": [infer_criterion_type(c) for c in criteria]
         }
@@ -158,17 +212,28 @@ def parse_json_file(content: bytes) -> Dict[str, Any]:
 
     # Validate or initialize criteria_matrix
     crit_matrix = data.get("criteria_matrix")
-    if not crit_matrix or len(crit_matrix) != n_crit:
-        crit_matrix = np.ones((n_crit, n_crit)).tolist()
+    if crit_matrix is None:
+        crit_matrix = unanswered_matrix(n_crit)
+    crit_matrix = validate_pairwise_matrix(criteria, crit_matrix, allow_missing=True, label="criteria_matrix")
 
     # Validate or initialize alt_matrices
     alt_matrices = data.get("alt_matrices", {})
+    if not isinstance(alt_matrices, dict):
+        raise ValueError("alt_matrices must be an object keyed by criterion.")
     clean_alt_matrices = {}
     for c in criteria:
-        if c in alt_matrices and len(alt_matrices[c]) == n_alt:
-            clean_alt_matrices[c] = alt_matrices[c]
-        else:
-            clean_alt_matrices[c] = np.ones((n_alt, n_alt)).tolist()
+        source = alt_matrices[c] if c in alt_matrices else unanswered_matrix(n_alt)
+        clean_alt_matrices[c] = validate_pairwise_matrix(
+            alternatives, source, allow_missing=True, label=f"alt_matrices.{c}"
+        )
+
+    data_matrix = data.get("data_matrix", data.get("topsis_matrix"))
+    if data_matrix is not None and (
+        not isinstance(data_matrix, list)
+        or len(data_matrix) != n_alt
+        or any(not isinstance(row, list) or len(row) != n_crit for row in data_matrix)
+    ):
+        raise ValueError("Ma trận dữ liệu TOPSIS không khớp số phương án và tiêu chí.")
 
     return {
         "id": p_id,
@@ -178,6 +243,7 @@ def parse_json_file(content: bytes) -> Dict[str, Any]:
         "alternatives": alternatives,
         "criteria_matrix": crit_matrix,
         "alt_matrices": clean_alt_matrices,
+        "data_matrix": data_matrix,
         "imported_format": "AHP Decision Studio JSON",
         "raw_matrix": data.get("raw_matrix", None),
         "criterion_types": data.get("criterion_types", [infer_criterion_type(c) for c in criteria])
@@ -201,14 +267,14 @@ def parse_tabular_dataframe(df: pd.DataFrame, source_name: str) -> Dict[str, Any
     
     criterion_types = [infer_criterion_type(str(c)) for c in criteria_cols]
 
-    # Extract numerical performance values safely without any NaN
+    # Missing measurements stay unanswered; never invent a value of 1.
     data_matrix = []
     for _, row in df.iterrows():
         row_vals = []
         for c in criteria_cols:
             val = row[c]
             if pd.isna(val) or val is None or val == '':
-                row_vals.append(1.0)
+                row_vals.append(None)
                 continue
             try:
                 if isinstance(val, str):
@@ -217,45 +283,36 @@ def parse_tabular_dataframe(df: pd.DataFrame, source_name: str) -> Dict[str, Any
                 else:
                     parsed_num = float(val)
                 if np.isnan(parsed_num) or np.isinf(parsed_num):
-                    parsed_num = 1.0
-                row_vals.append(round(parsed_num, 4))
+                    parsed_num = None
+                row_vals.append(round(parsed_num, 4) if parsed_num is not None else None)
             except Exception:
-                row_vals.append(1.0)
+                row_vals.append(None)
         data_matrix.append(row_vals)
 
     n_alt = len(alternatives)
     n_crit = len(criteria)
 
-    # 1. Criteria comparison matrix (Default to 1.0 equal importance for user adjustment)
-    crit_matrix = np.ones((n_crit, n_crit)).tolist()
+    # Criteria importance requires explicit judgments from the user.
+    crit_matrix = unanswered_matrix(n_crit)
 
     # 2. Alternative pairwise matrices auto-derived from quantitative ratios
-    X = np.array(data_matrix, dtype=float)
     alt_matrices = {}
 
     for c_idx, c_name in enumerate(criteria):
-        mat = np.ones((n_alt, n_alt), dtype=float)
-        col_vals = X[:, c_idx]
+        mat = unanswered_matrix(n_alt)
+        col_vals = [row[c_idx] for row in data_matrix]
         c_type = criterion_types[c_idx]
 
         for i in range(n_alt):
-            for j in range(n_alt):
-                if i == j:
-                    mat[i, j] = 1.0
-                else:
-                    vi = max(col_vals[i], 1e-9)
-                    vj = max(col_vals[j], 1e-9)
-                    
-                    if c_type == 'benefit':
-                        ratio = vi / vj
-                    else: # cost criterion: smaller is better
-                        ratio = vj / vi
-                    
-                    # Bounded ratio in Saaty 1/9 to 9 scale
-                    bounded = max(1/9.0, min(9.0, ratio))
-                    mat[i, j] = round(float(bounded), 4)
+            for j in range(i + 1, n_alt):
+                if col_vals[i] is None or col_vals[j] is None or col_vals[i] <= 0 or col_vals[j] <= 0:
+                    continue
+                vi, vj = col_vals[i], col_vals[j]
+                ratio = vi / vj if c_type == 'benefit' else vj / vi
+                bounded = max(1/9.0, min(9.0, ratio))
+                mat[i][j], mat[j][i] = float(bounded), 1.0 / float(bounded)
 
-        alt_matrices[c_name] = mat.tolist()
+        alt_matrices[c_name] = mat
 
     clean_title = re.sub(r'\.(xlsx|xls|csv)$', '', source_name, flags=re.IGNORECASE)
     clean_title = clean_title.replace('_', ' ').replace('-', ' ').title()

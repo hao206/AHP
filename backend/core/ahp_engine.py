@@ -9,6 +9,7 @@ Synthesized from:
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from scipy.optimize import minimize
+from core.matrix_validation import validate_pairwise_matrix
 
 # Saaty's Random Index (RI) table for matrix sizes 1 to 15
 SAATY_RI = {
@@ -54,31 +55,37 @@ class AHPMatrix:
     Pairwise Comparison Matrix Engine.
     Computes priority vectors, consistency index, inconsistency doctor, and method benchmarks.
     """
-    def __init__(self, elements: List[str], matrix: Optional[np.ndarray] = None):
+    def __init__(self, elements: List[str], matrix: Optional[np.ndarray] = None, *, allow_missing: bool = False):
         self.elements = elements
         self.n = len(elements)
         if matrix is not None:
-            self.matrix = np.array(matrix, dtype=float)
-            # Sanitize matrix: replace NaNs, Infs, or non-positive values with 1.0
-            self.matrix = np.where(np.isnan(self.matrix) | np.isinf(self.matrix) | (self.matrix <= 0), 1.0, self.matrix)
-            for i in range(self.n):
-                self.matrix[i, i] = 1.0
+            source = matrix.tolist() if isinstance(matrix, np.ndarray) else matrix
+            clean = validate_pairwise_matrix(elements, source, allow_missing=allow_missing)
+            self.matrix = np.array([[np.nan if value is None else value for value in row] for row in clean], dtype=float)
         else:
+            if self.n < 1 or any(not isinstance(name, str) or not name.strip() for name in elements) or len(set(elements)) != self.n:
+                raise ValueError("Element names must be nonempty and unique")
             self.matrix = np.ones((self.n, self.n), dtype=float)
 
+    def validate_complete(self):
+        validate_pairwise_matrix(self.elements, self.matrix.tolist())
+
     def set_comparison(self, i: int, j: int, value: float):
-        if value <= 0:
-            raise ValueError("Comparison value must be positive")
+        if i == j or not (0 <= i < self.n and 0 <= j < self.n):
+            raise ValueError("Comparison indices must refer to distinct elements")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or not 1/9 <= value <= 9:
+            raise ValueError("Comparison value must be within the 1/9–9 scale")
         self.matrix[i, j] = float(value)
         self.matrix[j, i] = 1.0 / float(value)
         self.matrix[i, i] = 1.0
 
     def compute_eigenvector(self, max_iterations: int = 200, tolerance: float = 1e-7) -> Tuple[np.ndarray, float]:
         """Principal Eigenvector via Power Iteration Method."""
+        self.validate_complete()
         if self.n == 1:
             return np.array([1.0]), 1.0
         if self.n == 2:
-            val = self.matrix[0, 1] if self.matrix[0, 1] > 0 else 1.0
+            val = self.matrix[0, 1]
             w = np.array([val / (1.0 + val), 1.0 / (1.0 + val)])
             return w, 2.0
 
@@ -86,8 +93,8 @@ class AHPMatrix:
         for _ in range(max_iterations):
             w_next = self.matrix @ w
             norm = np.sum(w_next)
-            if norm == 0 or np.isnan(norm):
-                break
+            if not np.isfinite(norm) or norm <= 0:
+                raise ValueError("Power iteration produced a non-finite weight vector")
             w_next = w_next / norm
             if np.max(np.abs(w_next - w)) < tolerance:
                 w = w_next
@@ -95,27 +102,29 @@ class AHPMatrix:
             w = w_next
 
         Aw = self.matrix @ w
-        lambda_max = float(np.mean(Aw / np.where(w == 0, 1e-6, w)))
-        if np.isnan(lambda_max) or np.isinf(lambda_max):
-            lambda_max = float(self.n)
+        lambda_max = float(np.mean(Aw / w))
+        if not np.isfinite(lambda_max):
+            raise ValueError("Power iteration produced a non-finite eigenvalue")
         return w, lambda_max
 
     def compute_geometric_mean(self) -> np.ndarray:
         """Geometric Mean Method (GMM / Logarithmic Least Squares)."""
+        self.validate_complete()
         if self.n == 1:
             return np.array([1.0])
-        clean_mat = np.where((self.matrix <= 0) | np.isnan(self.matrix), 1.0, self.matrix)
-        geom_means = np.prod(clean_mat, axis=1) ** (1.0 / self.n)
-        geom_means = np.nan_to_num(geom_means, nan=1.0)
+        geom_means = np.exp(np.mean(np.log(self.matrix), axis=1))
         s = np.sum(geom_means)
-        return geom_means / s if s > 0 and not np.isnan(s) else np.ones(self.n) / self.n
+        if not np.isfinite(s) or s <= 0:
+            raise ValueError("Geometric mean produced invalid weights")
+        return geom_means / s
 
     def compute_mean_normalization(self) -> np.ndarray:
         """Arithmetic Column Mean Normalization."""
+        self.validate_complete()
         col_sums = self.matrix.sum(axis=0)
-        col_sums = np.where((col_sums == 0) | np.isnan(col_sums), 1.0, col_sums)
+        if not np.all(np.isfinite(col_sums)) or np.any(col_sums <= 0):
+            raise ValueError("Column normalization produced invalid sums")
         norm_matrix = self.matrix / col_sums
-        norm_matrix = np.nan_to_num(norm_matrix, nan=1.0 / self.n)
         return norm_matrix.mean(axis=1)
 
     def benchmark_methods(self) -> Dict[str, Any]:
@@ -127,20 +136,15 @@ class AHPMatrix:
         w_gmm = self.compute_geometric_mean()
         w_arith = self.compute_mean_normalization()
 
-        # Sanitize NaNs
-        w_evm = np.nan_to_num(w_evm, nan=1.0 / self.n)
-        w_gmm = np.nan_to_num(w_gmm, nan=1.0 / self.n)
-        w_arith = np.nan_to_num(w_arith, nan=1.0 / self.n)
-
         mad_evm_gmm = float(np.max(np.abs(w_evm - w_gmm)))
-        if np.isnan(mad_evm_gmm):
-            mad_evm_gmm = 0.0
+        if not np.isfinite(mad_evm_gmm):
+            raise ValueError("Benchmark produced a non-finite comparison")
 
         rows = []
         for idx, el in enumerate(self.elements):
-            evm_v = float(w_evm[idx]) if not np.isnan(w_evm[idx]) else 1.0 / self.n
-            gmm_v = float(w_gmm[idx]) if not np.isnan(w_gmm[idx]) else 1.0 / self.n
-            arith_v = float(w_arith[idx]) if not np.isnan(w_arith[idx]) else 1.0 / self.n
+            evm_v = float(w_evm[idx])
+            gmm_v = float(w_gmm[idx])
+            arith_v = float(w_arith[idx])
 
             rows.append({
                 "element": el,
@@ -167,11 +171,15 @@ class AHPMatrix:
         missing_indices = []
         for i in range(self.n):
             for j in range(i + 1, self.n):
-                if comp_mat[i, j] <= 0:
+                if np.isnan(comp_mat[i, j]) and np.isnan(comp_mat[j, i]):
                     missing_indices.append((i, j))
 
         if not missing_indices:
+            self.validate_complete()
             return comp_mat
+
+        for i, j in missing_indices:
+            comp_mat[i, j] = comp_mat[j, i] = 1.0
 
         # If any missing, use spanning tree or log optimization
         def objective(x):
@@ -198,9 +206,11 @@ class AHPMatrix:
             comp_mat[i, i] = 1.0
 
         self.matrix = comp_mat
+        self.validate_complete()
         return comp_mat
 
     def evaluate(self, method: str = "eigenvector") -> Dict[str, Any]:
+        self.validate_complete()
         if method == "geometric_mean":
             weights = self.compute_geometric_mean()
             Aw = self.matrix @ weights
@@ -375,6 +385,19 @@ class AHPHierarchy:
         self.criteria_matrix = AHPMatrix(criteria)
         self.alt_matrices: Dict[str, AHPMatrix] = {
             c: AHPMatrix(alternatives) for c in criteria
+        }
+
+    def load_matrices(self, criteria_matrix, alt_matrices):
+        """Load every required matrix through the same strict validation path."""
+        if not isinstance(alt_matrices, dict):
+            raise ValueError("Alternative matrices must be keyed by criterion")
+        missing = [criterion for criterion in self.criteria if criterion not in alt_matrices]
+        if missing:
+            raise ValueError(f"Missing alternative matrices for: {', '.join(missing)}")
+        self.criteria_matrix = AHPMatrix(self.criteria, criteria_matrix)
+        self.alt_matrices = {
+            criterion: AHPMatrix(self.alternatives, alt_matrices[criterion])
+            for criterion in self.criteria
         }
 
     def synthesize(self, method: str = "eigenvector") -> Dict[str, Any]:
@@ -703,9 +726,9 @@ def aggregate_expert_matrices(matrices: List[List[List[float]]]) -> List[List[fl
     if not matrices:
         raise ValueError("Danh sách ma trận chuyên gia không được để trống.")
     
-    k = len(matrices)
-    np_matrices = [np.array(m, dtype=float) for m in matrices]
-    n = np_matrices[0].shape[0]
+    n = len(matrices[0])
+    elements = [str(i) for i in range(n)]
+    np_matrices = [AHPMatrix(elements, m).matrix for m in matrices]
 
     # Element-wise geometric mean
     aggregated = np.ones((n, n), dtype=float)
@@ -715,7 +738,7 @@ def aggregate_expert_matrices(matrices: List[List[List[float]]]) -> List[List[fl
                 aggregated[i, j] = 1.0
             elif i < j:
                 vals = [m[i, j] for m in np_matrices]
-                geom = np.prod(vals) ** (1.0 / k)
+                geom = float(np.exp(np.mean(np.log(vals))))
                 aggregated[i, j] = geom
                 aggregated[j, i] = 1.0 / geom
 
@@ -728,6 +751,10 @@ def compute_group_consensus(expert_matrices: List[List[List[float]]], elements: 
     Calculates Shannon Entropy-based consensus indicator S* among K decision makers.
     """
     k = len(expert_matrices)
+    if k == 0:
+        raise ValueError("At least one expert matrix is required")
+    for matrix in expert_matrices:
+        AHPMatrix(elements, matrix)
     if k < 2:
         return {"consensus_index": 100.0, "rating": "Rất cao (Đồng thuận tuyệt đối)", "code": "very_high"}
 
@@ -841,19 +868,18 @@ def run_monte_carlo_ahp(
     n_alt = len(alternatives)
 
     # 1. Compute baseline criteria weights
-    crit_mat = AHPMatrix(criteria, np.array(criteria_matrix, dtype=float))
+    crit_mat = AHPMatrix(criteria, criteria_matrix)
     crit_eval = crit_mat.evaluate("eigenvector")
     base_w = np.array(crit_eval["weights_list"], dtype=float)
 
     # 2. Compute local alternative weights for each criterion
     alt_local = np.zeros((n_crit, n_alt))
     for c_idx, c in enumerate(criteria):
-        if c in alt_matrices:
-            a_mat = AHPMatrix(alternatives, np.array(alt_matrices[c], dtype=float))
-            a_eval = a_mat.evaluate("eigenvector")
-            alt_local[c_idx, :] = a_eval["weights_list"]
-        else:
-            alt_local[c_idx, :] = 1.0 / n_alt
+        if c not in alt_matrices:
+            raise ValueError(f"Missing alternative matrix for: {c}")
+        a_mat = AHPMatrix(alternatives, alt_matrices[c])
+        a_eval = a_mat.evaluate("eigenvector")
+        alt_local[c_idx, :] = a_eval["weights_list"]
 
     # 3. Run Monte Carlo simulation runs
     rank1_counts = {alt: 0 for alt in alternatives}

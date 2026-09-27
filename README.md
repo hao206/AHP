@@ -496,7 +496,7 @@ Bảng đối chuẩn chi tiết dưới đây làm nổi bật những bước 
                                      │ RESTful API (JSON / HTTP)
 ┌────────────────────────────────────▼────────────────────────────────────┐
 │                        TẦNG DỊCH VỤ & XỬ LÝ (BACKEND)                    │
-│   Python 3.10+  │  FastAPI  │  Uvicorn  │  Pydantic Data Models         │
+│   Python 3.12+ │  FastAPI  │  Uvicorn  │  Pydantic Data Models         │
 │   - Engine Endpoint Routers & Project Persistence Store                 │
 │   - Multi-tab Executive Excel Generator (OpenPyXL Engine)               │
 │   - CSV / Excel File Importer & Format Normalizer                       │
@@ -531,8 +531,8 @@ python -m venv .venv
 # Trên Linux/macOS:
 source .venv/bin/activate
 
-# Cài đặt các gói thư viện tính toán khoa học
-pip install fastapi uvicorn numpy scipy openpyxl python-multipart
+# Cài đặt tất cả thư viện backend, gồm pandas và xlrd để đọc CSV/Excel .xls
+python -m pip install -r requirements.txt
 ```
 
 #### Bước 2: Thiết lập môi trường Frontend
@@ -540,17 +540,57 @@ pip install fastapi uvicorn numpy scipy openpyxl python-multipart
 ```bash
 cd ../frontend
 npm install
-npm run build
 ```
 
-#### Bước 3: Khởi chạy Hệ thống
+#### Bước 3: Khởi chạy trên hai cổng riêng (khuyến nghị khi phát triển)
 
-```bash
-cd ../backend
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+Trong terminal thứ nhất, từ thư mục `backend`:
+
+```powershell
+python -m uvicorn main:app --host 127.0.0.1 --port 8123 --reload
 ```
 
-Truy cập giao diện hệ thống qua trình duyệt: **`http://127.0.0.1:8000`**
+Trong terminal thứ hai, từ thư mục `frontend`:
+
+```powershell
+$env:AHP_BACKEND_URL = 'http://127.0.0.1:8123'
+npm run dev
+```
+
+Mở **`http://127.0.0.1:5175`**. Vite chuyển các yêu cầu `/api` đến backend ở cổng
+đã chọn. Với Bash, dùng `export AHP_BACKEND_URL=http://127.0.0.1:8123` trước
+`npm run dev`. Có thể chọn cổng backend khác và cập nhật `AHP_BACKEND_URL` tương ứng.
+
+Nếu muốn chạy một cổng, chạy `npm run build` trong `frontend`, rồi chạy backend;
+backend sẽ phục vụ thư mục `frontend/dist` khi thư mục đó tồn tại. Nếu triển khai
+frontend riêng, đặt `VITE_API_BASE_URL` thành URL API đầy đủ trước khi build,
+ví dụ `https://api.example.com/api`.
+
+#### Bảo vệ dự án khi triển khai
+
+API lưu/đọc/xóa dự án chỉ cho phép truy cập không cần mã khi cả máy khách và máy
+chủ đều ở `localhost`. Trước khi mở backend ra mạng, đặt biến môi trường
+`AHP_PROJECT_API_TOKEN` thành một chuỗi bí mật ngẫu nhiên ít nhất 32 ký tự.
+Giao diện sẽ yêu cầu nhập mã này khi cần đồng bộ dự án; mã được giữ trong
+`sessionStorage` của tab, không đóng gói vào ứng dụng. Không đặt mã trong biến
+`VITE_*`, mã nguồn, hoặc URL. Ví dụ tạo mã: `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+
+Ví dụ cấu hình trong PowerShell trên máy chạy backend (thay giá trị mẫu bằng mã
+vừa tạo):
+
+```powershell
+$env:AHP_PROJECT_API_TOKEN = '<ma-ngau-nhien-it-nhat-32-ky-tu>'
+$env:AHP_CORS_ORIGINS = 'https://app.example.com'
+python -m uvicorn main:app --host 0.0.0.0 --port 8123
+```
+
+CORS mặc định chỉ cho phép `http://127.0.0.1:5175` và `http://localhost:5175`.
+Nếu frontend ở địa chỉ khác, đặt `AHP_CORS_ORIGINS` thành danh sách origin chính
+xác, cách nhau bằng dấu phẩy, ví dụ `https://app.example.com`. Không dùng `*`.
+Cho triển khai Internet, dùng HTTPS, giới hạn truy cập đến backend bằng reverse
+proxy, và quản lý mã truy cập như một bí mật. Những API tính toán/nhập dữ liệu
+khác chưa có giới hạn người dùng; thư mục `backend/data` và bản nháp trong trình
+duyệt cũng chứa dữ liệu dự án, nên chỉ dùng trên thiết bị và máy chủ tin cậy.
 
 ---
 

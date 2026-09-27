@@ -1,93 +1,50 @@
 import React, { useState, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  Layers, ArrowLeft, Award, HelpCircle, TrendingUp, TrendingDown, 
-  RefreshCw, Info, CheckCircle2, Sliders, BarChart3, ShieldAlert
-} from 'lucide-react';
+  faCircleInfo, faSliders, faArrowsRotate, 
+  faArrowTrendDown, faArrowTrendUp, faAward, faArrowLeft 
+} from '@fortawesome/free-solid-svg-icons';
 import { runHybridTopsisAPI } from '../utils/ahpClient';
+import { getDecisionMatrix, getCriterionTypes, missingDecisionCells } from '../utils/topsisData.js';
 
-export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
-  if (!synthesisResult) {
-    return (
-      <div className="glass-panel" style={{ margin: '2rem auto', maxWidth: '600px', padding: '2rem', textAlign: 'center' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>Đang tổng hợp dữ liệu thứ bậc AHP...</p>
-      </div>
-    );
-  }
-
-  const { criteria, alternatives, criteria_evaluation } = synthesisResult;
-
-  // Criterion types: 'benefit' or 'cost'
-  const [criterionTypes, setCriterionTypes] = useState(() => {
-    if (project?.criterion_types && project.criterion_types.length === criteria.length) {
-      return project.criterion_types;
-    }
-    return criteria.map(c => 
-      c.toLowerCase().includes('cost') || c.toLowerCase().includes('chi phí') || c.toLowerCase().includes('giá') || c.toLowerCase().includes('rủi ro') ? 'cost' : 'benefit'
-    );
-  });
-
-  // Quantitative matrix values for alternatives
-  const [dataMatrix, setDataMatrix] = useState(() => {
-    if (project?.topsis_matrix && project.topsis_matrix.length === alternatives.length && project.topsis_matrix[0]?.length === criteria.length) {
-      return project.topsis_matrix;
-    }
-    if (alternatives.length === 3 && criteria.length === 4) {
-      return [
-        [120, 92, 99.5, 88],
-        [95, 85, 98.0, 82],
-        [40, 78, 95.0, 75]
-      ];
-    }
-    return Array(alternatives.length).fill(0).map(() => Array(criteria.length).fill(50));
-  });
-
-  const [topsisResult, setTopsisResult] = useState(null);
-  const [isCalculating, setIsCalculating] = useState(false);
+export default function HybridTopsisStep({ project, setProject, synthesisResult, onBack }) {
+  const { criteria = [], alternatives = [], criteria_evaluation = {} } = synthesisResult || {};
+  const criterionTypes = getCriterionTypes(project, criteria);
+  const dataMatrix = getDecisionMatrix(project, alternatives, criteria);
+  const missingCells = missingDecisionCells(dataMatrix, alternatives, criteria);
+  const weights = criteria_evaluation?.weights_list || [];
+  const hasMeasurements = dataMatrix.some(row => row.some(value => Number.isFinite(value) && value !== 0));
+  const calculationKey = synthesisResult && missingCells.length === 0 && hasMeasurements
+    ? JSON.stringify({ decision_matrix: dataMatrix, weights, criterion_types: criterionTypes, alternatives, criteria })
+    : null;
+  const [topsisState, setTopsisState] = useState({ key: null, result: null });
+  const topsisResult = calculationKey && topsisState.key === calculationKey ? topsisState.result : null;
+  const isCalculating = calculationKey && topsisState.key !== calculationKey;
   const [focusedCell, setFocusedCell] = useState(null);
 
-  // Sync matrix when project or dimensions change
-  useEffect(() => {
-    const rows = alternatives.length;
-    const cols = criteria.length;
-
-    if (project?.topsis_matrix && project.topsis_matrix.length === rows && project.topsis_matrix[0]?.length === cols) {
-      setDataMatrix(project.topsis_matrix);
-    } else {
-      setDataMatrix(prev => {
-        if (prev.length === rows && prev[0]?.length === cols) return prev;
-        return Array(rows).fill(0).map((_, r) => 
-          Array(cols).fill(0).map((_, c) => (prev[r]?.[c] !== undefined ? prev[r][c] : 50))
-        );
-      });
-    }
-
-    if (project?.criterion_types && project.criterion_types.length === cols) {
-      setCriterionTypes(project.criterion_types);
-    } else {
-      setCriterionTypes(criteria.map(c => 
-        c.toLowerCase().includes('cost') || c.toLowerCase().includes('chi phí') || c.toLowerCase().includes('giá') || c.toLowerCase().includes('rủi ro') ? 'cost' : 'benefit'
-      ));
-    }
-  }, [alternatives, criteria, project]);
-
   const handleCellChange = (r, c, val) => {
-    const num = val === '' ? 0 : parseFloat(val);
-    const updated = dataMatrix.map((row, rIdx) => 
-      row.map((cell, cIdx) => (rIdx === r && cIdx === c ? (isNaN(num) ? 0 : num) : cell))
-    );
-    setDataMatrix(updated);
+    const num = val === '' ? null : Number(val);
+    setProject(previous => ({
+      ...previous,
+      data_matrix: getDecisionMatrix(previous, previous.alternatives, previous.criteria).map((row, rIdx) =>
+        row.map((cell, cIdx) => rIdx === r && cIdx === c ? (Number.isFinite(num) ? num : null) : cell)
+      ),
+    }));
   };
 
   const handleTypeToggle = (cIdx) => {
-    const updated = [...criterionTypes];
-    updated[cIdx] = updated[cIdx] === 'benefit' ? 'cost' : 'benefit';
-    setCriterionTypes(updated);
+    setProject(previous => {
+      const updated = [...getCriterionTypes(previous, previous.criteria)];
+      updated[cIdx] = updated[cIdx] === 'benefit' ? 'cost' : 'benefit';
+      return { ...previous, criterion_types: updated };
+    });
   };
 
-  const handleResetZeros = () => {
-    const rows = alternatives.length;
-    const cols = criteria.length;
-    setDataMatrix(Array(rows).fill(0).map(() => Array(cols).fill(0)));
+  const handleClearData = () => {
+    setProject(previous => ({
+      ...previous,
+      data_matrix: previous.alternatives.map(() => previous.criteria.map(() => null)),
+    }));
   };
 
   const handleApplySampleValues = () => {
@@ -99,28 +56,26 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
         return isCost ? Math.round(30 + (r + 1) * 25) : Math.round(70 + (rows - r) * 9);
       })
     );
-    setDataMatrix(sample);
-  };
-
-  const executeTopsis = async () => {
-    setIsCalculating(true);
-    const weights = criteria_evaluation?.weights_list || Array(criteria.length).fill(1 / criteria.length);
-    const res = await runHybridTopsisAPI({
-      decision_matrix: dataMatrix,
-      weights,
-      criterion_types: criterionTypes,
-      alternatives,
-      criteria
-    });
-    setTopsisResult(res);
-    setIsCalculating(false);
+    setProject(previous => ({ ...previous, data_matrix: sample }));
   };
 
   useEffect(() => {
-    executeTopsis();
-  }, [dataMatrix, criterionTypes, criteria_evaluation]);
+    if (!calculationKey) return;
+    let cancelled = false;
+    runHybridTopsisAPI(JSON.parse(calculationKey)).then(result => {
+      if (!cancelled) setTopsisState({ key: calculationKey, result });
+    });
+    return () => { cancelled = true; };
+  }, [calculationKey]);
 
-  const weights = criteria_evaluation?.weights_list || [];
+  if (!synthesisResult) {
+    return (
+      <div className="glass-panel" style={{ margin: '2rem auto', maxWidth: '600px', padding: '2rem', textAlign: 'center' }}>
+        <p style={{ color: 'var(--text-secondary)' }}>Đang tổng hợp dữ liệu thứ bậc AHP...</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="animate-fade-in" style={{ padding: '0 1.5rem 2rem 1.5rem' }}>
@@ -169,7 +124,7 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
 
         {/* Step 5 Introduction & Guidance Card */}
         <div className="glass-panel" style={{ padding: '1rem 1.4rem', background: 'rgba(15, 23, 42, 0.55)', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-          <Info size={18} color="var(--success)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '18px', color: 'var(--success)', flexShrink: 0, marginTop: '0.2rem' }} />
           <div style={{ fontSize: '0.82rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
             <strong style={{ color: '#ffffff' }}>Giới thiệu Bước 5 (Mô hình Quyết định Lai Ghép AHP – TOPSIS):</strong> Trong quản trị thực tế, nhiều bài toán đòi hỏi kết hợp giữa <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>trọng số ưu tiên định tính AHP</span> với <span style={{ color: 'var(--success)', fontWeight: '600' }}>dữ liệu đo lường định lượng thực tế</span> (chi phí tính bằng tiền, thời gian tính bằng ngày, thông số kỹ thuật...).
             Thuật toán TOPSIS chuẩn hóa vector ma trận quyết định, phân loại tiêu chí Lợi ích (Max) và Chi phí (Min), từ đó đo lường khoảng cách Euclid đến Nghiệm lý tưởng ($D^+$) và Nghiệm phản lý tưởng ($D^-$) để xác định hệ số tiệm cận tương đối ($C_i$).
@@ -199,15 +154,15 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
               title="Điền tự động dữ liệu mẫu chuẩn hóa để xem trước kết quả xếp hạng"
             >
-              <Sliders size={13} color="var(--accent-cyan)" /> Điền Dữ Liệu Mẫu
+              <FontAwesomeIcon icon={faSliders} style={{ fontSize: '13px', color: 'var(--accent-cyan)', marginRight: '0.35rem' }} /> Điền Dữ Liệu Mẫu
             </button>
             <button
-              onClick={handleResetZeros}
+              onClick={handleClearData}
               className="btn btn-secondary"
               style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-              title="Đặt lại toàn bộ các ô giá trị về 0"
+              title="Xóa toàn bộ giá trị đo lường đã nhập"
             >
-              <RefreshCw size={13} /> Đặt Lại 0
+              <FontAwesomeIcon icon={faArrowsRotate} style={{ fontSize: '13px', marginRight: '0.35rem' }} /> Xóa Dữ Liệu
             </button>
           </div>
         </div>
@@ -291,11 +246,11 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
                         >
                           {isCost ? (
                             <>
-                              <TrendingDown size={13} /> Chi Phí (Min)
+                              <FontAwesomeIcon icon={faArrowTrendDown} style={{ fontSize: '12px' }} /> Chi Phí (Min)
                             </>
                           ) : (
                             <>
-                              <TrendingUp size={13} /> Lợi Ích (Max)
+                              <FontAwesomeIcon icon={faArrowTrendUp} style={{ fontSize: '12px' }} /> Lợi Ích (Max)
                             </>
                           )}
                         </button>
@@ -361,6 +316,8 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
                             type="number"
                             step="any"
                             value={dataMatrix[r]?.[c] ?? ''}
+                            placeholder="Chưa nhập"
+                            aria-label={`${alt} — ${criteria[c]}`}
                             onFocus={() => setFocusedCell({ r, c })}
                             onBlur={() => setFocusedCell(null)}
                             onChange={(e) => handleCellChange(r, c, e.target.value)}
@@ -368,7 +325,7 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
                               width: '100%',
                               textAlign: 'center',
                               background: isFocused ? 'rgba(6, 182, 212, 0.15)' : 'rgba(0, 0, 0, 0.35)',
-                              border: isFocused ? '1px solid var(--accent-cyan)' : '1px solid rgba(255, 255, 255, 0.1)',
+                              border: isFocused ? '1px solid var(--accent-cyan)' : dataMatrix[r]?.[c] == null ? '1px solid #f59e0b' : '1px solid rgba(255, 255, 255, 0.1)',
                               borderRadius: '7px',
                               color: '#ffffff',
                               padding: '0.55rem 0.5rem',
@@ -392,9 +349,7 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
 
         {/* Results Card */}
         {(() => {
-          const isAllZeros = dataMatrix.every(row => row.every(val => !val || Number(val) === 0));
-
-          if (isAllZeros) {
+          if (missingCells.length > 0 || !hasMeasurements) {
             return (
               <div className="glass-panel" style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'rgba(15, 23, 42, 0.65)', border: '1px dashed rgba(255, 255, 255, 0.15)' }}>
                 <div style={{ 
@@ -408,26 +363,30 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
                   justifyContent: 'center', 
                   margin: '0 auto 1rem auto' 
                 }}>
-                  <Info size={24} />
+                  <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '24px' }} />
                 </div>
                 <h4 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#ffffff', marginBottom: '0.5rem' }}>
-                  Chưa Có Dữ Liệu Đo Lường Định Lượng
+                  {missingCells.length > 0 ? `Còn ${missingCells.length} ô dữ liệu chưa nhập` : 'Chưa Có Dữ Liệu Đo Lường Định Lượng'}
                 </h4>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', maxWidth: '540px', margin: '0 auto 1.5rem auto', lineHeight: 1.6 }}>
-                  Tất cả các ô trong ma trận hiện đang bằng 0. Thuật toán TOPSIS cần các giá trị đo lường thực tế để chuẩn hóa ma trận và tính toán khoảng cách hình học Euclid (D⁺, D⁻). Vui lòng nhập số liệu trực tiếp vào bảng trên hoặc bấm nút dưới để nạp nhanh dữ liệu mẫu chuẩn hóa.
+                  {missingCells.length > 0
+                    ? `Hãy nhập các giá trị đo lường còn thiếu, bắt đầu với ${missingCells[0].alternative} — ${missingCells[0].criterion}. TOPSIS sẽ chỉ tính khi bảng dữ liệu hoàn chỉnh.`
+                    : 'Bảng hiện chỉ có giá trị 0. Hãy nhập số liệu đo lường thực tế hoặc chọn dữ liệu mẫu để xem cách TOPSIS hoạt động.'}
                 </p>
                 <button
                   onClick={handleApplySampleValues}
                   className="btn btn-primary"
                   style={{ padding: '0.65rem 1.4rem', fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
                 >
-                  <Sliders size={16} /> Điền Dữ Liệu Mẫu Chuẩn Hóa
+                  <FontAwesomeIcon icon={faSliders} style={{ fontSize: '15px' }} /> Điền Dữ Liệu Mẫu Chuẩn Hóa
                 </button>
               </div>
             );
           }
 
-          if (!topsisResult) return null;
+          if (!topsisResult) {
+            return <div className="glass-panel" style={{ padding: '1.5rem', color: 'var(--text-secondary)' }}>{isCalculating ? 'Đang tính TOPSIS…' : 'Không thể tính TOPSIS từ dữ liệu hiện tại.'}</div>;
+          }
 
           const hasTieWinner = topsisResult.rankings.length > 1 && topsisResult.rankings[0].percentage === topsisResult.rankings[1].percentage;
 
@@ -435,7 +394,7 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
             <div className="glass-panel" style={{ padding: '1.75rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <Award size={22} color="var(--success)" />
+                  <FontAwesomeIcon icon={faAward} style={{ fontSize: '20px', color: 'var(--success)' }} />
                   <h3 style={{ fontSize: '1.15rem', fontWeight: '800', color: '#ffffff', margin: 0 }}>
                     Bảng Xếp Hạng Giải Pháp Tối Ưu (Chỉ Số Tương Cận Cᵢ)
                   </h3>
@@ -598,7 +557,7 @@ export default function HybridTopsisStep({ project, synthesisResult, onBack }) {
             className="btn btn-secondary"
             style={{ padding: '0.75rem 1.4rem' }}
           >
-            <ArrowLeft size={16} /> Quay lại Bước 4: Phân Tích Độ Nhạy
+            <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: '15px', marginRight: '0.4rem' }} /> Quay lại Bước 4: Phân Tích Độ Nhạy
           </button>
         </div>
 

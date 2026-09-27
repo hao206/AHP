@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  Sliders, Grid, AlertTriangle, CheckCircle2, ArrowRight, 
-  ArrowLeft, BarChart2, Scale, Info, Check, RefreshCw
-} from 'lucide-react';
+  faSliders, faTableCells, faTriangleExclamation, faCircleCheck, faArrowRight, 
+  faArrowLeft, faChartSimple, faScaleBalanced, faCircleInfo, faCheck, faArrowsRotate
+} from '@fortawesome/free-solid-svg-icons';
 import { 
-  evaluateMatrixAPI, benchmarkMethodsAPI, completeMissingAPI, 
+  evaluateMatrixAPI, benchmarkMethodsAPI,
   autoTuneConsistencyAPI, SAATY_SCALE_LABELS 
 } from '../utils/ahpClient';
+import { missingMatrixPairs, invalidMatrixComparisons } from '../utils/projectCompleteness.js';
 
-export default function PairwiseStep({ project, setProject, onProceed, onBack }) {
+export default function PairwiseStep({ project, setProject, onProceed, onBack, missingComparisons = [], invalidComparisons = [] }) {
   const [activeScope, setActiveScope] = useState('criteria');
   const [viewMode, setViewMode] = useState('sliders'); // 'sliders' | 'matrix'
-  const [evalResult, setEvalResult] = useState(null);
-  const [benchmarkResult, setBenchmarkResult] = useState(null);
+  const [evalState, setEvalState] = useState({ scope: null, matrix: null, result: null });
+  const [benchmarkState, setBenchmarkState] = useState({ scope: null, matrix: null, result: null });
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [isAutoTuning, setIsAutoTuning] = useState(false);
   const [tuneMessage, setTuneMessage] = useState(null);
@@ -22,23 +24,32 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
   const currentMatrix = isCriteria 
     ? project.criteria_matrix 
     : (project.alt_matrices[activeScope] || []);
+  const scopeMissing = missingMatrixPairs(elements, currentMatrix, activeScope);
+  const scopeInvalid = invalidMatrixComparisons(elements, currentMatrix, activeScope);
+  const isScopeComplete = scopeMissing.length === 0 && scopeInvalid.length === 0;
+  const evalResult = isScopeComplete && evalState.scope === activeScope && evalState.matrix === currentMatrix ? evalState.result : null;
+  const benchmarkResult = isScopeComplete && benchmarkState.scope === activeScope && benchmarkState.matrix === currentMatrix ? benchmarkState.result : null;
 
   useEffect(() => {
-    if (elements.length > 0 && currentMatrix.length === elements.length) {
+    let cancelled = false;
+    if (elements.length > 0 && currentMatrix.length === elements.length &&
+        missingMatrixPairs(elements, currentMatrix, activeScope).length === 0 &&
+        invalidMatrixComparisons(elements, currentMatrix, activeScope).length === 0) {
       evaluateMatrixAPI(elements, currentMatrix).then(res => {
-        setEvalResult(res);
+        if (!cancelled) setEvalState({ scope: activeScope, matrix: currentMatrix, result: res });
       });
       benchmarkMethodsAPI(elements, currentMatrix).then(bench => {
-        setBenchmarkResult(bench);
+        if (!cancelled) setBenchmarkState({ scope: activeScope, matrix: currentMatrix, result: bench });
       });
     }
+    return () => { cancelled = true; };
   }, [activeScope, currentMatrix, elements]);
 
   const setComparison = (i, j, value) => {
     const newMatrix = currentMatrix.map((row, rIdx) => 
       row.map((cell, cIdx) => {
         if (rIdx === i && cIdx === j) return value;
-        if (rIdx === j && cIdx === i) return 1.0 / value;
+        if (rIdx === j && cIdx === i) return value == null ? null : 1.0 / value;
         if (rIdx === cIdx) return 1.0;
         return cell;
       })
@@ -58,6 +69,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
   };
 
   const valueToSliderStep = (val) => {
+    if (val == null) return null;
     if (Math.abs(val - 1.0) < 1e-3) return 0;
     if (val > 1.0) {
       return -(Math.round(val) - 1);
@@ -81,24 +93,8 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
     setComparison(diag.i, diag.j, diag.suggested_value);
   };
 
-  const handleAutoCompleteMissing = async () => {
-    const res = await completeMissingAPI(elements, currentMatrix);
-    if (res?.completed_matrix) {
-      if (isCriteria) {
-        setProject({ ...project, criteria_matrix: res.completed_matrix });
-      } else {
-        setProject({
-          ...project,
-          alt_matrices: {
-            ...project.alt_matrices,
-            [activeScope]: res.completed_matrix
-          }
-        });
-      }
-    }
-  };
-
   const handleAutoTune = async () => {
+    if (!isScopeComplete) return;
     setIsAutoTuning(true);
     setTuneMessage(null);
     try {
@@ -136,8 +132,8 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
     }
   }
 
-  const cr = evalResult ? evalResult.consistency_ratio : 0;
-  const isConsistent = evalResult ? evalResult.is_consistent : true;
+  const cr = evalResult?.consistency_ratio;
+  const isConsistent = evalResult?.is_consistent;
 
   return (
     <div className="animate-fade-in" style={{ padding: '0 1.5rem 2rem 1.5rem' }}>
@@ -172,20 +168,12 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
               <button
                 onClick={() => setShowBenchmarkModal(!showBenchmarkModal)}
+                disabled={!isScopeComplete}
                 className="btn btn-secondary"
                 style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
                 title="Đối sánh EVM, GMM và Chuẩn hóa số học (Thuật toán Voracious)"
               >
-                <BarChart2 size={13} /> Đối Sánh Phương Pháp
-              </button>
-
-              <button
-                onClick={handleAutoCompleteMissing}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
-                title="Ước lượng ô khuyết bằng tối ưu hóa Log-Least Squares (AHPy)"
-              >
-                <Sliders size={13} color="var(--accent-cyan)" /> Tự Động Điền Khuyết
+                <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: '12px' }} /> Đối Sánh Phương Pháp
               </button>
 
               <div style={{ display: 'flex', background: 'rgba(0, 0, 0, 0.4)', padding: '0.2rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
@@ -205,7 +193,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                     color: viewMode === 'sliders' ? '#ffffff' : 'var(--text-muted)'
                   }}
                 >
-                  <Sliders size={13} /> Thanh Trượt 9-1-9
+                  <FontAwesomeIcon icon={faSliders} style={{ fontSize: '12px' }} /> Thanh Trượt 9-1-9
                 </button>
                 <button
                   onClick={() => setViewMode('matrix')}
@@ -223,7 +211,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                     color: viewMode === 'matrix' ? '#ffffff' : 'var(--text-muted)'
                   }}
                 >
-                  <Grid size={13} /> Ma Trận Tương Hỗ
+                  <FontAwesomeIcon icon={faTableCells} style={{ fontSize: '12px' }} /> Ma Trận Tương Hỗ
                 </button>
               </div>
             </div>
@@ -253,7 +241,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                   boxShadow: isCriteria ? '0 2px 8px rgba(79, 70, 229, 0.25)' : 'none'
                 }}
               >
-                <Scale size={15} color={isCriteria ? 'var(--accent-cyan)' : 'currentColor'} />
+                <FontAwesomeIcon icon={faScaleBalanced} style={{ fontSize: '14px', color: isCriteria ? 'var(--accent-cyan)' : 'currentColor' }} />
                 So Sánh Các Tiêu Chí (với Mục tiêu)
               </button>
 
@@ -279,7 +267,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                   {isCriteria && <option value="" disabled>-- Chọn một tiêu chí cụ thể --</option>}
                   {project.criteria.map((c, idx) => (
                     <option key={idx} value={c}>
-                      Tiêu chí: {c}
+                      Tiêu chí: {c}{missingComparisons.some(pair => pair.scope === c) ? ` (${missingComparisons.filter(pair => pair.scope === c).length} còn thiếu)` : ''}
                     </option>
                   ))}
                 </select>
@@ -289,15 +277,38 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
 
         </div>
 
+        {missingComparisons.length > 0 && (
+          <div className="glass-panel" role="status" style={{ padding: '1rem 1.4rem', borderLeft: '5px solid #f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>
+            <strong style={{ color: '#fbbf24' }}>Còn {missingComparisons.length} cặp so sánh chưa trả lời.</strong>
+            <p style={{ margin: '0.35rem 0', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+              Chọn một giá trị cho từng cặp, kể cả “Ngang nhau (1)” nếu đó là đánh giá của bạn. Kết quả và báo cáo Excel chỉ mở khi tất cả cặp đã được trả lời; bạn vẫn có thể sao lưu bản nháp JSON.
+            </p>
+            {scopeMissing.length > 0 && (
+              <div style={{ maxHeight: '8rem', overflowY: 'auto', fontSize: '0.82rem', color: '#fcd34d' }}>
+                {scopeMissing.map(pair => <div key={`${pair.i}-${pair.j}`}>• {pair.left} ↔ {pair.right}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {invalidComparisons.length > 0 && (
+          <div className="glass-panel" role="alert" style={{ padding: '1rem 1.4rem', borderLeft: '5px solid #ef4444', background: 'rgba(239, 68, 68, 0.1)' }}>
+            <strong style={{ color: '#fca5a5' }}>Có {invalidComparisons.length} lỗi ma trận cần sửa trước khi tính toán hoặc xuất kết quả.</strong>
+            <div style={{ maxHeight: '8rem', overflowY: 'auto', fontSize: '0.82rem', color: '#fecaca', marginTop: '0.35rem' }}>
+              {invalidComparisons.map((error, index) => <div key={index}>• {error.scope}: {error.message}</div>)}
+            </div>
+          </div>
+        )}
+
         {/* Step 2 Introduction & Guidance Card */}
         <div className="glass-panel" style={{ padding: '1rem 1.4rem', background: 'rgba(15, 23, 42, 0.55)', border: '1px solid rgba(6, 182, 212, 0.25)', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
-          <Info size={18} color="var(--accent-cyan)" style={{ flexShrink: 0, marginTop: '0.2rem' }} />
+          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '16px', color: 'var(--accent-cyan)', flexShrink: 0, marginTop: '0.2rem' }} />
           <div style={{ fontSize: '0.82rem', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
             <strong style={{ color: '#ffffff' }}>Giới thiệu Bước 2 (So sánh cặp & Kiểm định tính nhất quán):</strong> Bạn sử dụng thang điểm chuẩn Saaty từ 
             <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}> 1 (Quan trọng như nhau)</span> đến 
             <span style={{ color: '#f59e0b', fontWeight: '600' }}> 9 (Cực kỳ quan trọng / Tuyệt đối)</span> để đánh giá từng cặp yếu tố.
             Hệ thống tự động tính toán <strong style={{ color: '#10b981' }}>Tỷ số Nhất quán (CR)</strong>. 
-            Kết quả đạt chuẩn khoa học khi <span style={{ color: '#10b981', fontWeight: '700' }}>CR ≤ 10% (0.10)</span>. Nếu vượt ngưỡng, bạn có thể dùng công cụ <em>"Bác sĩ Nhất quán"</em> hoặc <em>"Tự động điền khuyết"</em> để tinh chỉnh các phán đoán mâu thuẫn.
+            Kết quả đạt chuẩn khoa học khi <span style={{ color: '#10b981', fontWeight: '700' }}>CR ≤ 10% (0.10)</span>. Nếu vượt ngưỡng, bạn có thể dùng công cụ <em>"Bác sĩ Nhất quán"</em> để tinh chỉnh các phán đoán mâu thuẫn.
           </div>
         </div>
 
@@ -306,7 +317,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
           <div className="glass-panel" style={{ padding: '1.25rem 1.5rem', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <BarChart2 size={18} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
                 <h4 style={{ fontSize: '1rem', fontWeight: '700' }}>Đối Sánh Đa Phương Pháp (Voracious-AHP Engine)</h4>
               </div>
               <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', fontWeight: '700' }}>
@@ -346,6 +357,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
         )}
 
         {/* Consistency Ratio (CR) Banner & Inconsistency Doctor */}
+        {evalResult ? (
         <div className="glass-panel" style={{ 
           padding: '1.25rem 1.5rem',
           borderLeft: `5px solid ${isConsistent ? 'var(--success)' : 'var(--danger)'}`,
@@ -358,9 +370,9 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
             {isConsistent ? (
-              <CheckCircle2 size={32} color="var(--success)" />
+              <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: '28px', color: 'var(--success)' }} />
             ) : (
-              <AlertTriangle size={32} color="var(--danger)" />
+              <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '28px', color: 'var(--danger)' }} />
             )}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
@@ -397,8 +409,8 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                 }
               </p>
               {tuneMessage && (
-                <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--accent-cyan)', fontWeight: '600' }}>
-                  ✓ {tuneMessage}
+                <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <FontAwesomeIcon icon={faCheck} /> {tuneMessage}
                 </div>
               )}
             </div>
@@ -419,7 +431,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
               {evalResult?.inconsistency_diagnosis?.length > 0 && (
                 <div>
                   <div style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <Info size={13} /> GỢI Ý HIỆU CHỈNH TÍNH NHẤT QUÁN
+                    <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: '12px' }} /> GỢI Ý HIỆU CHỈNH TÍNH NHẤT QUÁN
                   </div>
                   <div style={{ fontSize: '0.8rem', color: '#ffffff', marginTop: '0.1rem' }}>
                     Cặp so sánh lệch nhất: <strong>[{evalResult.inconsistency_diagnosis[0].element_a}]</strong> vs <strong>[{evalResult.inconsistency_diagnosis[0].element_b}]</strong>
@@ -454,20 +466,26 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                   }}
                   title="Tự động tìm kiếm và tối ưu hóa ma trận đưa CR về <= 10% (Thuật toán Voracious-AHP)"
                 >
-                  <RefreshCw size={13} className={isAutoTuning ? 'spinning' : ''} />
+                  <FontAwesomeIcon icon={faArrowsRotate} spin={isAutoTuning} style={{ fontSize: '12px' }} />
                   Tối Ưu Hóa Nhất Quán (CR ≤ 10%)
                 </button>
               </div>
             </div>
           )}
         </div>
+        ) : (
+          <div className="glass-panel" style={{ padding: '1.25rem 1.5rem', borderLeft: '5px solid #f59e0b', background: 'rgba(245, 158, 11, 0.08)' }}>
+            <strong style={{ color: '#fbbf24' }}>{isScopeComplete ? 'Đang tính tỷ số nhất quán…' : 'Chưa tính tỷ số nhất quán cho nhóm này'}</strong>
+            {!isScopeComplete && <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Còn {scopeMissing.length} cặp chưa được đánh giá và {scopeInvalid.length} lỗi ma trận. Giá trị 1 chỉ được ghi nhận khi bạn chọn “Ngang nhau”.</p>}
+          </div>
+        )}
 
         {/* Sliders View Mode with 1-Click Quick Scale Buttons */}
         {viewMode === 'sliders' && (
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.5rem' }}>
               <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Sliders size={18} color="var(--accent-cyan)" />
+                <FontAwesomeIcon icon={faSliders} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
                 Thanh Trượt Đánh Giá So Sánh Cặp (Thang Đo Saaty 9-1-9)
               </h3>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -479,22 +497,23 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
               {pairs.map((pair, pIdx) => {
                 const val = currentMatrix[pair.i][pair.j];
                 const sliderVal = valueToSliderStep(val);
+                const isMissing = val == null || currentMatrix[pair.j][pair.i] == null;
                 const isLeftPreferred = sliderVal < 0;
                 const isRightPreferred = sliderVal > 0;
-                const isEqual = sliderVal === 0;
+                const isEqual = !isMissing && sliderVal === 0;
 
-                let verbalText = '';
-                const absScale = Math.abs(sliderVal) + 1;
+                let verbalText = 'Chưa đánh giá — hãy chọn một giá trị';
+                const absScale = isMissing ? 1 : Math.abs(sliderVal) + 1;
                 if (isEqual) verbalText = 'Quan trọng như nhau (1 : 1)';
                 else if (isLeftPreferred) verbalText = `"${pair.a}" ${SAATY_SCALE_LABELS[absScale]} so với "${pair.b}"`;
-                else verbalText = `"${pair.b}" ${SAATY_SCALE_LABELS[absScale]} so với "${pair.a}"`;
+                else if (isRightPreferred) verbalText = `"${pair.b}" ${SAATY_SCALE_LABELS[absScale]} so với "${pair.a}"`;
 
                 return (
                   <div 
                     key={pIdx}
                     style={{
                       background: 'rgba(255, 255, 255, 0.02)',
-                      border: '1px solid rgba(255, 255, 255, 0.06)',
+                      border: isMissing ? '1px solid #f59e0b' : '1px solid rgba(255, 255, 255, 0.06)',
                       borderRadius: '12px',
                       padding: '1.2rem 1.5rem',
                       display: 'flex',
@@ -524,8 +543,8 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                         fontSize: '0.8rem', 
                         padding: '0.25rem 0.85rem', 
                         borderRadius: '20px', 
-                        background: isEqual ? 'rgba(255, 255, 255, 0.05)' : (isLeftPreferred ? 'rgba(6, 182, 212, 0.15)' : 'rgba(99, 102, 241, 0.15)'),
-                        color: isEqual ? 'var(--text-muted)' : (isLeftPreferred ? '#67e8f9' : '#a5b4fc'),
+                        background: isMissing ? 'rgba(245, 158, 11, 0.15)' : isEqual ? 'rgba(255, 255, 255, 0.05)' : (isLeftPreferred ? 'rgba(6, 182, 212, 0.15)' : 'rgba(99, 102, 241, 0.15)'),
+                        color: isMissing ? '#fbbf24' : isEqual ? 'var(--text-muted)' : (isLeftPreferred ? '#67e8f9' : '#a5b4fc'),
                         fontWeight: '600',
                         border: '1px solid rgba(255, 255, 255, 0.08)'
                       }}>
@@ -569,11 +588,12 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                         min="-8"
                         max="8"
                         step="1"
-                        value={sliderVal}
+                        value={sliderVal ?? 0}
                         onChange={(e) => {
                           const newVal = sliderStepToValue(e.target.value);
                           setComparison(pair.i, pair.j, newVal);
                         }}
+                        aria-label={`So sánh ${pair.a} với ${pair.b}${isMissing ? ', chưa đánh giá' : ''}`}
                         className="slider-expert"
                       />
 
@@ -610,7 +630,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                       </div>
 
                       {/* Center Equal button */}
-                      <button onClick={() => setComparison(pair.i, pair.j, 1)} className={`scale-pill ${sliderVal === 0 ? 'active' : ''}`} style={{ padding: '0.25rem 0.85rem', fontWeight: '700' }} title="Ngang nhau (1 : 1)">
+                        <button onClick={() => setComparison(pair.i, pair.j, 1)} className={`scale-pill ${isEqual ? 'active' : ''}`} style={{ padding: '0.25rem 0.85rem', fontWeight: '700' }} title="Ngang nhau (1 : 1)">
                         Ngang nhau (1)
                       </button>
 
@@ -642,7 +662,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
         {viewMode === 'matrix' && (
           <div className="glass-panel" style={{ padding: '1.5rem', overflowX: 'auto' }}>
             <h3 style={{ fontSize: '1.05rem', marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Grid size={18} color="var(--accent-cyan)" />
+              <FontAwesomeIcon icon={faTableCells} style={{ fontSize: '16px', color: 'var(--accent-cyan)' }} />
               Ma Trận Tương Hỗ Saaty (A_ij * A_ji = 1)
             </h3>
 
@@ -674,12 +694,17 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                           <td key={j} className="upper-cell">
                             <select
                               value={
+                                val == null ? '' :
                                 Math.abs(val - 1) < 1e-3 ? '1' :
                                 val >= 1 ? (Math.abs(val - Math.round(val)) < 1e-3 ? `${Math.round(val)}` : `${val.toFixed(2)}`) :
                                 (Math.abs(1/val - Math.round(1/val)) < 1e-3 ? `1/${Math.round(1/val)}` : `${val.toFixed(2)}`)
                               }
                               onChange={(e) => {
                                 const raw = e.target.value;
+                                if (raw === '') {
+                                  setComparison(i, j, null);
+                                  return;
+                                }
                                 let num = 1.0;
                                 if (raw.startsWith('1/')) {
                                   num = 1.0 / parseFloat(raw.replace('1/', ''));
@@ -691,7 +716,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                               style={{
                                 background: 'transparent',
                                 border: 'none',
-                                color: '#ffffff',
+                                color: val == null ? '#fbbf24' : '#ffffff',
                                 fontFamily: 'var(--font-mono)',
                                 fontWeight: '600',
                                 outline: 'none',
@@ -700,6 +725,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
                                 textAlign: 'center'
                               }}
                             >
+                              <option value="" style={{ background: '#111827' }}>Chưa đánh giá</option>
                               <option value="9" style={{ background: '#111827' }}>9</option>
                               <option value="8" style={{ background: '#111827' }}>8</option>
                               <option value="7" style={{ background: '#111827' }}>7</option>
@@ -727,7 +753,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
 
                       return (
                         <td key={j} className="lower-cell">
-                          {val >= 1 ? (Math.abs(val - Math.round(val)) < 1e-3 ? Math.round(val) : val.toFixed(2)) : `1/${Math.round(1/val)}`}
+                          {val == null ? <span style={{ color: '#fbbf24' }}>—</span> : val >= 1 ? (Math.abs(val - Math.round(val)) < 1e-3 ? Math.round(val) : val.toFixed(2)) : `1/${Math.round(1/val)}`}
                         </td>
                       );
                     })}
@@ -755,15 +781,17 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack })
             className="btn btn-secondary"
             style={{ padding: '0.75rem 1.4rem' }}
           >
-            <ArrowLeft size={16} /> Quay lại Bước 1
+            <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: '14px', marginRight: '0.4rem' }} /> Quay lại Bước 1
           </button>
 
           <button 
             onClick={onProceed}
+            disabled={missingComparisons.length > 0 || invalidComparisons.length > 0}
+            title={missingComparisons.length > 0 || invalidComparisons.length > 0 ? `Còn ${missingComparisons.length} cặp chưa trả lời và ${invalidComparisons.length} lỗi ma trận.` : undefined}
             className="btn btn-primary"
             style={{ padding: '0.75rem 1.8rem', fontSize: '0.95rem' }}
           >
-            Chuyển sang Bước 3: Tổng Hợp & Biểu Đồ Radar <ArrowRight size={18} />
+            Chuyển sang Bước 3: Tổng Hợp & Biểu Đồ Radar <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '15px', marginLeft: '0.4rem' }} />
           </button>
         </div>
 

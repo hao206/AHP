@@ -1,9 +1,10 @@
 import os
-import json
 import uuid
 import io
+import math
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -16,17 +17,38 @@ from core.ahp_engine import (
     compute_group_consensus, compute_fuzzy_ahp
 )
 from core.file_importer import (
-    parse_uploaded_file, generate_sample_excel_template, generate_sample_csv_template
+    parse_uploaded_file, generate_sample_excel_template, generate_sample_csv_template,
+    infer_criterion_type
 )
+from core.project_store import PROJECTS_LOCK, load_projects, save_projects
+from core.api_security import allowed_origins, project_access_error, validate_project_token
+
+PROJECT_API_TOKEN = validate_project_token(os.getenv("AHP_PROJECT_API_TOKEN", ""))
+CORS_ORIGINS = allowed_origins(os.getenv("AHP_CORS_ORIGINS"))
+
+
+def require_project_access(request: Request):
+    server_host = request.scope.get("server", (None,))[0]
+    client_host = request.client.host if request.client else None
+    failure = project_access_error(
+        PROJECT_API_TOKEN, request.headers.get("authorization"), server_host,
+        client_host, request.url.hostname, origin=request.headers.get("origin"),
+        request_origin=f"{request.url.scheme}://{request.url.netloc}",
+        allowed=CORS_ORIGINS, method=request.method,
+    )
+    if failure:
+        status, detail = failure
+        headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
+        raise HTTPException(status_code=status, detail=detail, headers=headers)
 
 app = FastAPI(title="AHP Decision Studio Enterprise API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -77,7 +99,7 @@ class GradientSensitivityRequest(BaseModel):
 
 class IncompleteCompleteRequest(BaseModel):
     elements: List[str]
-    matrix: List[List[float]]
+    matrix: List[List[Optional[float]]]
 
 class HybridTopsisRequest(BaseModel):
     decision_matrix: List[List[float]]
@@ -93,8 +115,15 @@ class ProjectModel(BaseModel):
     goal: str
     criteria: List[str]
     alternatives: List[str]
-    criteria_matrix: List[List[float]]
-    alt_matrices: Dict[str, List[List[float]]]
+    criteria_matrix: List[List[Optional[float]]]
+    alt_matrices: Dict[str, List[List[Optional[float]]]]
+    data_matrix: Optional[List[List[Optional[float]]]] = None
+    topsis_matrix: Optional[List[List[Optional[float]]]] = None
+    criterion_types: Optional[List[str]] = None
+    imported_format: Optional[str] = None
+    raw_matrix: Optional[Any] = None
+    isCustom: Optional[bool] = None
+    createdAt: Optional[str] = None
     updated_at: Optional[str] = None
 
 class MonteCarloRequest(BaseModel):
@@ -225,19 +254,25 @@ def get_default_templates() -> Dict[str, Any]:
     }
 
 def load_projects_from_disk() -> Dict[str, Any]:
-    if not os.path.exists(PROJECTS_FILE):
-        default_projects = get_default_templates()
-        save_projects_to_disk(default_projects)
-        return default_projects
-    try:
-        with open(PROJECTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return get_default_templates()
+    return load_projects(PROJECTS_FILE, get_default_templates)
 
 def save_projects_to_disk(data: Dict[str, Any]):
-    with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_projects(PROJECTS_FILE, data)
+
+
+def missing_project_comparisons(project: ProjectModel) -> List[str]:
+    missing = []
+    for scope, elements, matrix in [
+        ("criteria", project.criteria, project.criteria_matrix),
+        *[(criterion, project.alternatives, project.alt_matrices.get(criterion)) for criterion in project.criteria],
+    ]:
+        for i in range(len(elements)):
+            for j in range(i + 1, len(elements)):
+                if (matrix is None or i >= len(matrix) or j >= len(matrix)
+                        or j >= len(matrix[i]) or i >= len(matrix[j])
+                        or matrix[i][j] is None or matrix[j][i] is None):
+                    missing.append(f"{scope}: {elements[i]} / {elements[j]}")
+    return missing
 
 # ----------------- Endpoints -----------------
 
@@ -266,7 +301,7 @@ def benchmark_methods(req: MatrixEvaluationRequest):
 @app.post("/api/ahp/incomplete-complete")
 def incomplete_complete(req: IncompleteCompleteRequest):
     try:
-        matrix_obj = AHPMatrix(req.elements, req.matrix)
+        matrix_obj = AHPMatrix(req.elements, req.matrix, allow_missing=True)
         completed_matrix = matrix_obj.complete_missing_comparisons()
         eval_res = matrix_obj.evaluate("eigenvector")
         return {
@@ -280,16 +315,7 @@ def incomplete_complete(req: IncompleteCompleteRequest):
 def synthesize_hierarchy(req: HierarchySynthesizeRequest):
     try:
         hierarchy = AHPHierarchy(req.goal, req.criteria, req.alternatives)
-        for i in range(len(req.criteria)):
-            for j in range(len(req.criteria)):
-                hierarchy.criteria_matrix.matrix[i, j] = req.criteria_matrix[i][j]
-                
-        for c in req.criteria:
-            if c in req.alt_matrices:
-                m = req.alt_matrices[c]
-                for i in range(len(req.alternatives)):
-                    for j in range(len(req.alternatives)):
-                        hierarchy.alt_matrices[c].matrix[i, j] = m[i][j]
+        hierarchy.load_matrices(req.criteria_matrix, req.alt_matrices)
                         
         result = hierarchy.synthesize(req.method or "eigenvector")
         return result
@@ -301,11 +327,9 @@ def dynamic_sensitivity(req: DynamicSensitivityRequest):
     try:
         hierarchy = AHPHierarchy("Sensitivity", req.criteria, req.alternatives)
         for c in req.criteria:
-            if c in req.alt_matrices:
-                m = req.alt_matrices[c]
-                for i in range(len(req.alternatives)):
-                    for j in range(len(req.alternatives)):
-                        hierarchy.alt_matrices[c].matrix[i, j] = m[i][j]
+            if c not in req.alt_matrices:
+                raise ValueError(f"Missing alternative matrix for: {c}")
+            hierarchy.alt_matrices[c] = AHPMatrix(req.alternatives, req.alt_matrices[c])
                         
         # Local alt scores
         alt_local = []
@@ -324,15 +348,7 @@ def dynamic_sensitivity(req: DynamicSensitivityRequest):
 def gradient_sensitivity(req: GradientSensitivityRequest):
     try:
         hierarchy = AHPHierarchy(req.goal, req.criteria, req.alternatives)
-        for i in range(len(req.criteria)):
-            for j in range(len(req.criteria)):
-                hierarchy.criteria_matrix.matrix[i, j] = req.criteria_matrix[i][j]
-        for c in req.criteria:
-            if c in req.alt_matrices:
-                m = req.alt_matrices[c]
-                for i in range(len(req.alternatives)):
-                    for j in range(len(req.alternatives)):
-                        hierarchy.alt_matrices[c].matrix[i, j] = m[i][j]
+        hierarchy.load_matrices(req.criteria_matrix, req.alt_matrices)
 
         res = hierarchy.compute_gradient_sensitivity(req.selected_criterion)
         return res
@@ -371,6 +387,14 @@ def monte_carlo(req: MonteCarloRequest):
 @app.post("/api/export/excel")
 def export_excel(project: ProjectModel):
     """Generates an executive multi-tab Excel spreadsheet with formatting."""
+    missing = missing_project_comparisons(project)
+    if missing:
+        raise HTTPException(status_code=422, detail={"message": "Complete all pairwise comparisons before exporting results.", "missing": missing})
+    try:
+        hierarchy = AHPHierarchy(project.goal, project.criteria, project.alternatives)
+        hierarchy.load_matrices(project.criteria_matrix, project.alt_matrices)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     try:
         wb = openpyxl.Workbook()
         
@@ -400,16 +424,6 @@ def export_excel(project: ProjectModel):
         ws_rank.append([])
 
         # Synthesis
-        hierarchy = AHPHierarchy(project.goal, project.criteria, project.alternatives)
-        for i in range(len(project.criteria)):
-            for j in range(len(project.criteria)):
-                hierarchy.criteria_matrix.matrix[i, j] = project.criteria_matrix[i][j]
-        for c in project.criteria:
-            if c in project.alt_matrices:
-                m = project.alt_matrices[c]
-                for i in range(len(project.alternatives)):
-                    for j in range(len(project.alternatives)):
-                        hierarchy.alt_matrices[c].matrix[i, j] = m[i][j]
         synth = hierarchy.synthesize("eigenvector")
 
         ws_rank.append(["Thứ hạng", "Phương án", "Điểm số Trọng số Tổng hợp", "Tỷ lệ phần trăm", "Trạng thái Đề xuất"])
@@ -460,8 +474,38 @@ def export_excel(project: ProjectModel):
                 f"{row_data['evm_pct']}%"
             ])
 
+        # Keep the quantitative data and its TOPSIS result in the exported report.
+        decision_data = project.data_matrix if project.data_matrix is not None else project.topsis_matrix
+        if decision_data is not None:
+            ws_topsis = wb.create_sheet(title="Dữ Liệu TOPSIS")
+            types = project.criterion_types if project.criterion_types and len(project.criterion_types) == len(project.criteria) else [infer_criterion_type(c) for c in project.criteria]
+            ws_topsis.append(["DỮ LIỆU ĐO LƯỜNG & KẾT QUẢ AHP-TOPSIS"])
+            ws_topsis["A1"].font = title_font
+            ws_topsis.append(["Loại tiêu chí", *types])
+            ws_topsis.append(["Phương án", *project.criteria])
+            for index, alternative in enumerate(project.alternatives):
+                row = decision_data[index] if index < len(decision_data) else []
+                ws_topsis.append([alternative, *row])
+
+            complete_data = (
+                len(decision_data) == len(project.alternatives)
+                and all(len(row) == len(project.criteria) and all(value is not None and math.isfinite(value) for value in row) for row in decision_data)
+                and any(value != 0 for row in decision_data for value in row if value is not None)
+            )
+            ws_topsis.append([])
+            if complete_data:
+                topsis = run_hybrid_ahp_topsis(
+                    decision_data, synth["criteria_evaluation"]["weights_list"],
+                    types, project.alternatives, project.criteria
+                )
+                ws_topsis.append(["Thứ hạng", "Phương án", "Hệ số tiệm cận"])
+                for item in topsis["rankings"]:
+                    ws_topsis.append([item["rank"], item["alternative"], item["closeness"]])
+            else:
+                ws_topsis.append(["Dữ liệu TOPSIS chưa hoàn chỉnh; không tính xếp hạng."])
+
         # Auto-fit column widths
-        for ws in [ws_rank, ws_crit]:
+        for ws in wb.worksheets:
             for col in ws.columns:
                 max_len = max(len(str(cell.value or '')) for cell in col)
                 col_letter = openpyxl.utils.get_column_letter(col[0].column)
@@ -480,29 +524,56 @@ def export_excel(project: ProjectModel):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/projects")
+@app.get("/api/projects", dependencies=[Depends(require_project_access)])
 def list_projects():
     projects = load_projects_from_disk()
     return list(projects.values())
 
-@app.post("/api/projects")
-def save_project(proj: ProjectModel):
-    projects = load_projects_from_disk()
-    p_id = proj.id if proj.id else f"proj-{uuid.uuid4().hex[:8]}"
-    proj_dict = proj.dict()
-    proj_dict["id"] = p_id
-    projects[p_id] = proj_dict
-    save_projects_to_disk(projects)
-    return proj_dict
-
-@app.delete("/api/projects/{project_id}")
-def delete_project(project_id: str):
+@app.get("/api/projects/{project_id}", dependencies=[Depends(require_project_access)])
+def get_project(project_id: str):
     projects = load_projects_from_disk()
     if project_id in projects:
-        del projects[project_id]
-        save_projects_to_disk(projects)
-        return {"status": "success", "message": f"Đã xóa dự án {project_id}"}
+        return projects[project_id]
     raise HTTPException(status_code=404, detail="Không tìm thấy dự án.")
+
+@app.post("/api/projects", dependencies=[Depends(require_project_access)])
+def save_project(proj: ProjectModel):
+    with PROJECTS_LOCK:
+        projects = load_projects_from_disk()
+        p_id = proj.id if proj.id else f"proj-{uuid.uuid4().hex[:8]}"
+        proj_dict = proj.model_dump()
+        proj_dict["id"] = p_id
+        incoming_time = proj.updated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        try:
+            incoming_version = datetime.fromisoformat(incoming_time.replace("Z", "+00:00"))
+            if incoming_version.tzinfo is None:
+                raise ValueError("Timestamp must include a timezone")
+        except ValueError:
+            raise HTTPException(status_code=422, detail="updated_at must be an ISO timestamp with timezone")
+        proj_dict["updated_at"] = incoming_time
+        existing_time = projects.get(p_id, {}).get("updated_at")
+        if existing_time:
+            try:
+                existing_version = datetime.fromisoformat(existing_time.replace("Z", "+00:00"))
+                if existing_version.tzinfo is None:
+                    raise ValueError("Stored timestamp has no timezone")
+            except ValueError:
+                raise HTTPException(status_code=409, detail="The stored project has an invalid version timestamp")
+            if incoming_version < existing_version or (incoming_version == existing_version and proj_dict != projects[p_id]):
+                raise HTTPException(status_code=409, detail="A newer version of this project is already saved")
+        projects[p_id] = proj_dict
+        save_projects_to_disk(projects)
+        return proj_dict
+
+@app.delete("/api/projects/{project_id}", dependencies=[Depends(require_project_access)])
+def delete_project(project_id: str):
+    with PROJECTS_LOCK:
+        projects = load_projects_from_disk()
+        if project_id in projects:
+            del projects[project_id]
+            save_projects_to_disk(projects)
+            return {"status": "success", "message": f"Đã xóa dự án {project_id}"}
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án.")
 
 @app.get("/api/templates")
 def list_templates():

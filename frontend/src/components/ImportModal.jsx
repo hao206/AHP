@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-  UploadCloud, FileSpreadsheet, FileText, CheckCircle2, 
-  AlertCircle, Download, X, ArrowRight, Table, Layers, Target, ShieldCheck
-} from 'lucide-react';
+  faCloudArrowUp, faFileExcel, faDownload, 
+  faXmark, faCircleExclamation, faCircleCheck, faArrowRight 
+} from '@fortawesome/free-solid-svg-icons';
 import { importFileAPI, SAMPLE_EXCEL_URL, SAMPLE_CSV_URL } from '../utils/ahpClient';
 
 export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
@@ -84,7 +85,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <UploadCloud size={20} color="#ffffff" />
+              <FontAwesomeIcon icon={faCloudArrowUp} style={{ fontSize: '18px', color: '#ffffff' }} />
             </div>
             <div>
               <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#ffffff', margin: 0 }}>
@@ -99,9 +100,9 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
           <button
             onClick={onClose}
             className="btn btn-secondary"
-            style={{ padding: '0.35rem', borderRadius: '50%', border: 'none' }}
+            style={{ padding: '0.35rem 0.55rem', borderRadius: '50%', border: 'none' }}
           >
-            <X size={18} />
+            <FontAwesomeIcon icon={faXmark} style={{ fontSize: '16px' }} />
           </button>
         </div>
 
@@ -118,7 +119,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
           border: '1px solid rgba(255, 255, 255, 0.06)'
         }}>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <FileSpreadsheet size={15} color="var(--accent-cyan)" />
+            <FontAwesomeIcon icon={faFileExcel} style={{ fontSize: '15px', color: 'var(--accent-cyan)' }} />
             Chưa có file mẫu? Tải xuống biểu mẫu chuẩn doanh nghiệp:
           </span>
 
@@ -129,7 +130,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
               className="btn btn-secondary"
               style={{ fontSize: '0.75rem', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--success)' }}
             >
-              <Download size={13} /> Mẫu Excel (.xlsx)
+              <FontAwesomeIcon icon={faDownload} style={{ fontSize: '12px' }} /> Mẫu Excel (.xlsx)
             </a>
             <a
               href={SAMPLE_CSV_URL}
@@ -137,7 +138,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
               className="btn btn-secondary"
               style={{ fontSize: '0.75rem', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8' }}
             >
-              <Download size={13} /> Mẫu CSV
+              <FontAwesomeIcon icon={faDownload} style={{ fontSize: '12px' }} /> Mẫu CSV
             </a>
           </div>
         </div>
@@ -181,7 +182,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <UploadCloud size={30} />
+              <FontAwesomeIcon icon={faCloudArrowUp} style={{ fontSize: '26px' }} />
             </div>
 
             <div>
@@ -208,7 +209,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
             color: 'var(--danger)',
             fontSize: '0.85rem'
           }}>
-            <AlertCircle size={18} />
+            <FontAwesomeIcon icon={faCircleExclamation} style={{ fontSize: '18px' }} />
             <span>{error}</span>
           </div>
         )}
@@ -226,7 +227,7 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <CheckCircle2 size={20} color="var(--success)" />
+                <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: '18px', color: 'var(--success)' }} />
                 <span style={{ fontWeight: '800', color: 'var(--success)', fontSize: '0.95rem' }}>
                   Phân Tích Cấu Trúc Thành Công!
                 </span>
@@ -314,8 +315,9 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
 
             {/* Data matrix sample preview */}
             {parsedData.data_matrix && (
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.3)', padding: '0.6rem', borderRadius: '6px' }}>
-                ✓ Đã nhập bảng hiệu suất {parsedData.alternatives.length} phương án × {parsedData.criteria.length} tiêu chí. Sẵn sàng cho cả Mô hình Thứ bậc AHP và Mô hình Lai TOPSIS.
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.3)', padding: '0.6rem', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FontAwesomeIcon icon={faCircleCheck} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                <span>Đã nhập bảng hiệu suất {parsedData.alternatives.length} phương án × {parsedData.criteria.length} tiêu chí. Sẵn sàng cho cả Mô hình Thứ bậc AHP và Mô hình Lai TOPSIS.</span>
               </div>
             )}
           </div>
@@ -339,10 +341,13 @@ export default function ImportModal({ isOpen, onClose, onImportSuccess }) {
               padding: '0.55rem 1.4rem',
               fontSize: '0.85rem',
               opacity: parsedData ? 1 : 0.4,
-              cursor: parsedData ? 'pointer' : 'not-allowed'
+              cursor: parsedData ? 'pointer' : 'not-allowed',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem'
             }}
           >
-            Áp Dụng Vào Mô Hình <ArrowRight size={15} />
+            Áp Dụng Vào Mô Hình <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '13px' }} />
           </button>
         </div>
 
