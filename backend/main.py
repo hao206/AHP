@@ -276,6 +276,15 @@ def missing_project_comparisons(project: ProjectModel) -> List[str]:
 
 # ----------------- Endpoints -----------------
 
+@app.get("/")
+def root():
+    return {
+        "service": "AHP Decision Studio Enterprise API",
+        "status": "online",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "AHP Decision Studio Enterprise API", "version": "2.0.0"}
