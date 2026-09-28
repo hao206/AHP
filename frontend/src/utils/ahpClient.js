@@ -148,10 +148,13 @@ export async function completeMissingAPI(elements, matrix) {
 
 export async function synthesizeHierarchyAPI(project) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const res = await fetch(`${API_BASE}/ahp/synthesize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         goal: project.goal,
         criteria: project.criteria,
@@ -165,16 +168,21 @@ export async function synthesizeHierarchyAPI(project) {
     if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Synthesis API error, using local calculation", err);
+  } finally {
+    clearTimeout(timeout);
   }
   return evaluateLocalSynthesis(project);
 }
 
 export async function getGradientSensitivityAPI(project, selectedCriterion) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const res = await fetch(`${API_BASE}/ahp/gradient-sensitivity`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         goal: project.goal,
         criteria: project.criteria,
@@ -186,23 +194,30 @@ export async function getGradientSensitivityAPI(project, selectedCriterion) {
     });
     if (res.ok) return await res.json();
   } catch (err) {
-    console.warn("Gradient sensitivity API error", err);
+    console.warn("Gradient sensitivity API error, using local fallback", err);
+  } finally {
+    clearTimeout(timeout);
   }
-  return null;
+  return evaluateLocalGradientSensitivity(project, selectedCriterion);
 }
 
 export async function runHybridTopsisAPI(payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const res = await fetch(`${API_BASE}/ahp/hybrid-topsis`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify(payload),
     });
     if (res.ok) return await res.json();
   } catch (err) {
-    console.warn("Hybrid TOPSIS API error", err);
+    console.warn("Hybrid TOPSIS API error, using local fallback", err);
+  } finally {
+    clearTimeout(timeout);
   }
-  return null;
+  return evaluateLocalHybridTopsis(payload);
 }
 
 export async function exportExcelAPI(project) {
@@ -574,5 +589,124 @@ function evaluateLocalMonteCarlo(project, numSimulations = 1000, perturbationPct
     win_probabilities: winProbabilities,
     rank_distributions: rankDist,
     score_stats: scoreStats,
+  };
+}
+
+function evaluateLocalGradientSensitivity(project, selectedCriterion) {
+  const critEval = evaluateMatrixLocal(project.criteria, project.criteria_matrix);
+  const altEvals = {};
+  project.criteria.forEach((c) => {
+    altEvals[c] = evaluateMatrixLocal(project.alternatives, project.alt_matrices[c]);
+  });
+
+  const selectedIdx = project.criteria.indexOf(selectedCriterion);
+  if (selectedIdx === -1) return null;
+
+  const baseWeights = [...critEval.weights_list];
+  const otherWeightsSum = baseWeights.reduce((sum, w, i) => i === selectedIdx ? sum : sum + w, 0);
+
+  const weightPoints = [];
+  const alternativeScores = {};
+  project.alternatives.forEach(alt => {
+    alternativeScores[alt] = [];
+  });
+
+  for (let p = 0; p <= 100; p += 5) {
+    const wSelected = p / 100;
+    weightPoints.push(Math.round(wSelected * 100) / 100);
+
+    const simulatedWeights = project.criteria.map((_, i) => {
+      if (i === selectedIdx) return wSelected;
+      if (otherWeightsSum <= 1e-9) return (1 - wSelected) / (project.criteria.length - 1 || 1);
+      return (baseWeights[i] / otherWeightsSum) * (1 - wSelected);
+    });
+
+    project.alternatives.forEach((alt, aIdx) => {
+      let totalScore = 0;
+      project.criteria.forEach((c, cIdx) => {
+        const localAltScore = altEvals[c].weights_list[aIdx];
+        totalScore += localAltScore * simulatedWeights[cIdx];
+      });
+      alternativeScores[alt].push(Math.round(totalScore * 1000) / 1000);
+    });
+  }
+
+  return {
+    criterion: selectedCriterion,
+    weight_points: weightPoints,
+    alternative_scores: alternativeScores,
+  };
+}
+
+function evaluateLocalHybridTopsis(payload) {
+  const { decision_matrix, weights, criterion_types = [], alternatives = [], criteria = [] } = payload;
+  const nAlt = alternatives.length;
+  const nCrit = criteria.length;
+  if (!nAlt || !nCrit) return null;
+
+  const sumSquares = new Array(nCrit).fill(0);
+  for (let c = 0; c < nCrit; c++) {
+    for (let a = 0; a < nAlt; a++) {
+      const val = Number(decision_matrix[a]?.[c]) || 0;
+      sumSquares[c] += val * val;
+    }
+  }
+
+  const weightedMatrix = [];
+  for (let a = 0; a < nAlt; a++) {
+    const row = [];
+    for (let c = 0; c < nCrit; c++) {
+      const denom = Math.sqrt(sumSquares[c]) || 1;
+      const val = Number(decision_matrix[a]?.[c]) || 0;
+      const r_ij = val / denom;
+      const w_j = weights[c] !== undefined ? weights[c] : 1 / nCrit;
+      row.push(r_ij * w_j);
+    }
+    weightedMatrix.push(row);
+  }
+
+  const idealPositive = [];
+  const idealNegative = [];
+  for (let c = 0; c < nCrit; c++) {
+    const colVals = weightedMatrix.map(row => row[c]);
+    const isBenefit = (criterion_types[c] || 'benefit').toLowerCase() === 'benefit';
+    if (isBenefit) {
+      idealPositive.push(Math.max(...colVals));
+      idealNegative.push(Math.min(...colVals));
+    } else {
+      idealPositive.push(Math.min(...colVals));
+      idealNegative.push(Math.max(...colVals));
+    }
+  }
+
+  const rankings = [];
+  for (let a = 0; a < nAlt; a++) {
+    let dPlusSq = 0;
+    let dMinusSq = 0;
+    for (let c = 0; c < nCrit; c++) {
+      const v = weightedMatrix[a][c];
+      dPlusSq += Math.pow(v - idealPositive[c], 2);
+      dMinusSq += Math.pow(v - idealNegative[c], 2);
+    }
+    const dPlus = Math.sqrt(dPlusSq);
+    const dMinus = Math.sqrt(dMinusSq);
+    const closeness = (dPlus + dMinus) === 0 ? 0 : dMinus / (dPlus + dMinus);
+
+    rankings.push({
+      alternative: alternatives[a],
+      closeness: Math.round(closeness * 10000) / 10000,
+      d_plus: Math.round(dPlus * 10000) / 10000,
+      d_minus: Math.round(dMinus * 10000) / 10000,
+    });
+  }
+
+  rankings.sort((a, b) => b.closeness - a.closeness);
+  rankings.forEach((item, idx) => { item.rank = idx + 1; });
+
+  return {
+    rankings,
+    ideal_positive: idealPositive.map(v => Math.round(v * 10000) / 10000),
+    ideal_negative: idealNegative.map(v => Math.round(v * 10000) / 10000),
+    weighted_matrix: weightedMatrix.map(row => row.map(v => Math.round(v * 10000) / 10000)),
   };
 }
