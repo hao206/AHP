@@ -488,6 +488,7 @@ export default function App() {
   const missingComparisons = missingProjectComparisons(project);
   const invalidComparisons = invalidProjectComparisons(project);
   const isProjectComplete = missingComparisons.length === 0 && invalidComparisons.length === 0;
+  const currentAhpSignature = ahpSignature(project);
   let synthesisResult = null;
   if (isProjectComplete) {
     if (synthesisState.signature === currentAhpSignature && synthesisState.result) {
