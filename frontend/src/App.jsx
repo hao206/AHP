@@ -488,11 +488,18 @@ export default function App() {
   const missingComparisons = missingProjectComparisons(project);
   const invalidComparisons = invalidProjectComparisons(project);
   const isProjectComplete = missingComparisons.length === 0 && invalidComparisons.length === 0;
-  const synthesisResult = isProjectComplete 
-    ? (synthesisState.signature === currentAhpSignature && synthesisState.result 
-        ? synthesisState.result 
-        : evaluateLocalSynthesis(JSON.parse(currentAhpSignature)))
-    : null;
+  let synthesisResult = null;
+  if (isProjectComplete) {
+    if (synthesisState.signature === currentAhpSignature && synthesisState.result) {
+      synthesisResult = synthesisState.result;
+    } else {
+      try {
+        synthesisResult = evaluateLocalSynthesis(JSON.parse(currentAhpSignature));
+      } catch (e) {
+        console.warn('Local synthesis calculation failed:', e);
+      }
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;

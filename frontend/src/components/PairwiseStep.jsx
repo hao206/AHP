@@ -27,8 +27,14 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
   const scopeMissing = missingMatrixPairs(elements, currentMatrix, activeScope);
   const scopeInvalid = invalidMatrixComparisons(elements, currentMatrix, activeScope);
   const isScopeComplete = scopeMissing.length === 0 && scopeInvalid.length === 0;
-  const evalResult = (isScopeComplete && evalState.scope === activeScope && evalState.matrix === currentMatrix ? evalState.result : null)
-    || (isScopeComplete ? evaluateMatrixLocal(elements, currentMatrix) : null);
+  let evalResult = isScopeComplete && evalState.scope === activeScope && evalState.matrix === currentMatrix ? evalState.result : null;
+  if (!evalResult && isScopeComplete) {
+    try {
+      evalResult = evaluateMatrixLocal(elements, currentMatrix);
+    } catch (e) {
+      console.warn('Local eval failed:', e);
+    }
+  }
   const benchmarkResult = isScopeComplete && benchmarkState.scope === activeScope && benchmarkState.matrix === currentMatrix ? benchmarkState.result : null;
 
   useEffect(() => {
