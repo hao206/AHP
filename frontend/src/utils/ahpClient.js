@@ -102,32 +102,41 @@ export const SAATY_RI = {
 
 export async function evaluateMatrixAPI(elements, matrix) {
   if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
     const res = await fetch(`${API_BASE}/ahp/evaluate-matrix`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({ elements, matrix, method: "eigenvector" }),
     });
     if (res.ok) return await res.json();
-    if (res.status >= 400 && res.status < 500) return null;
+    if (res.status === 400 || res.status === 422) return null;
   } catch (err) {
     console.warn("Backend API unavailable, using local calculation", err);
+  } finally {
+    clearTimeout(timeout);
   }
   return evaluateMatrixLocal(elements, matrix);
 }
 
 export async function benchmarkMethodsAPI(elements, matrix) {
   if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
     const res = await fetch(`${API_BASE}/ahp/benchmark-methods`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({ elements, matrix }),
     });
     if (res.ok) return await res.json();
-    if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
     console.warn("Benchmark API error", err);
+  } finally {
+    clearTimeout(timeout);
   }
   return null;
 }
@@ -149,7 +158,7 @@ export async function completeMissingAPI(elements, matrix) {
 export async function synthesizeHierarchyAPI(project) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
+  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
     const res = await fetch(`${API_BASE}/ahp/synthesize`, {
       method: "POST",
@@ -165,7 +174,7 @@ export async function synthesizeHierarchyAPI(project) {
       }),
     });
     if (res.ok) return await res.json();
-    if (res.status >= 400 && res.status < 500) return null;
+    if (res.status === 400 || res.status === 422) return null;
   } catch (err) {
     console.warn("Synthesis API error, using local calculation", err);
   } finally {
@@ -343,7 +352,7 @@ export const SAMPLE_CSV_URL = `${API_BASE}/templates/download-sample-csv`;
 
 
 // Fallback local functions
-function evaluateMatrixLocal(elements, matrix) {
+export function evaluateMatrixLocal(elements, matrix) {
   const n = elements.length;
   if (n === 1) {
     return {
@@ -426,7 +435,7 @@ function evaluateMatrixLocal(elements, matrix) {
   };
 }
 
-function evaluateLocalSynthesis(project) {
+export function evaluateLocalSynthesis(project) {
   const critEval = evaluateMatrixLocal(project.criteria, project.criteria_matrix);
   const altEvals = {};
   const altScores = new Array(project.alternatives.length).fill(0);

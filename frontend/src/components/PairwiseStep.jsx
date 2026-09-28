@@ -6,7 +6,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { 
   evaluateMatrixAPI, benchmarkMethodsAPI,
-  autoTuneConsistencyAPI, SAATY_SCALE_LABELS 
+  autoTuneConsistencyAPI, SAATY_SCALE_LABELS, evaluateMatrixLocal
 } from '../utils/ahpClient';
 import { missingMatrixPairs, invalidMatrixComparisons } from '../utils/projectCompleteness.js';
 
@@ -27,7 +27,8 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
   const scopeMissing = missingMatrixPairs(elements, currentMatrix, activeScope);
   const scopeInvalid = invalidMatrixComparisons(elements, currentMatrix, activeScope);
   const isScopeComplete = scopeMissing.length === 0 && scopeInvalid.length === 0;
-  const evalResult = isScopeComplete && evalState.scope === activeScope && evalState.matrix === currentMatrix ? evalState.result : null;
+  const evalResult = (isScopeComplete && evalState.scope === activeScope && evalState.matrix === currentMatrix ? evalState.result : null)
+    || (isScopeComplete ? evaluateMatrixLocal(elements, currentMatrix) : null);
   const benchmarkResult = isScopeComplete && benchmarkState.scope === activeScope && benchmarkState.matrix === currentMatrix ? benchmarkState.result : null;
 
   useEffect(() => {

@@ -6,7 +6,10 @@ import ResultsStep from './components/ResultsStep';
 import SensitivityStep from './components/SensitivityStep';
 import HybridTopsisStep from './components/HybridTopsisStep';
 import ImportModal from './components/ImportModal';
-import { synthesizeHierarchyAPI, exportExcelAPI, getProjectAPI, saveProjectAPI, setProjectAccessToken } from './utils/ahpClient';
+import { 
+  synthesizeHierarchyAPI, exportExcelAPI, getProjectAPI, saveProjectAPI, 
+  setProjectAccessToken, evaluateLocalSynthesis 
+} from './utils/ahpClient';
 import { ahpSignature, missingProjectComparisons, invalidProjectComparisons } from './utils/projectCompleteness.js';
 import {
   ACTIVE_STEP_KEY, copyAsNewProject, createProjectSaveQueue,
@@ -485,8 +488,11 @@ export default function App() {
   const missingComparisons = missingProjectComparisons(project);
   const invalidComparisons = invalidProjectComparisons(project);
   const isProjectComplete = missingComparisons.length === 0 && invalidComparisons.length === 0;
-  const currentAhpSignature = ahpSignature(project);
-  const synthesisResult = isProjectComplete && synthesisState.signature === currentAhpSignature ? synthesisState.result : null;
+  const synthesisResult = isProjectComplete 
+    ? (synthesisState.signature === currentAhpSignature && synthesisState.result 
+        ? synthesisState.result 
+        : evaluateLocalSynthesis(JSON.parse(currentAhpSignature)))
+    : null;
 
   useEffect(() => {
     let cancelled = false;
