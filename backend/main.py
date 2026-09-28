@@ -2,6 +2,7 @@ import os
 import uuid
 import io
 import math
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response, Depends, Request
@@ -51,9 +52,16 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+if os.getenv("VERCEL") or not os.access(os.path.dirname(__file__), os.W_OK):
+    DATA_DIR = os.path.join(tempfile.gettempdir(), "ahp_data")
+else:
+    DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError:
+    DATA_DIR = os.path.join(tempfile.gettempdir(), "ahp_data")
+    os.makedirs(DATA_DIR, exist_ok=True)
 PROJECTS_FILE = os.path.join(DATA_DIR, "projects.json")
-os.makedirs(DATA_DIR, exist_ok=True)
 
 # ----------------- Models -----------------
 
