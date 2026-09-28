@@ -1,0 +1,8 @@
+{
+  "name": "ahp-decision-studio-root",
+  "private": true,
+  "version": "2.0.0",
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build"
+  }
+}
