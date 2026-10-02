@@ -9,6 +9,7 @@ import { suggestPersonasAPI, deliberateAIAPI } from '../utils/ahpClient';
 
 export default function AIExpertPanelModal({ isOpen, onClose, goal, scope, elements, onApplyMatrix }) {
   const [personas, setPersonas] = useState([]);
+  const [loadingPersonas, setLoadingPersonas] = useState(false);
   const [isDeliberating, setIsDeliberating] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -176,6 +177,11 @@ export default function AIExpertPanelModal({ isOpen, onClose, goal, scope, eleme
 
               <h4 style={{ fontSize: '1rem', color: '#fff', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <FontAwesomeIcon icon={faUsers} style={{ color: '#3b82f6' }} /> Hội Đồng Chuyên Gia Đánh Giá (Personas)
+                {loadingPersonas && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <FontAwesomeIcon icon={faArrowsRotate} spin /> Đang tối ưu hoá hội đồng theo đề bài...
+                  </span>
+                )}
               </h4>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
