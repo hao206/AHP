@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faSliders, faTableCells, faTriangleExclamation, faCircleCheck, faArrowRight, 
-  faArrowLeft, faChartSimple, faScaleBalanced, faCircleInfo, faCheck, faArrowsRotate
+  faArrowLeft, faChartSimple, faScaleBalanced, faCircleInfo, faCheck, faArrowsRotate,
+  faRobot
 } from '@fortawesome/free-solid-svg-icons';
+import AIExpertPanelModal from './AIExpertPanelModal';
 import { 
   evaluateMatrixAPI, benchmarkMethodsAPI,
   autoTuneConsistencyAPI, SAATY_SCALE_LABELS, evaluateMatrixLocal
@@ -16,6 +18,7 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
   const [evalState, setEvalState] = useState({ scope: null, matrix: null, result: null });
   const [benchmarkState, setBenchmarkState] = useState({ scope: null, matrix: null, result: null });
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
+  const [showAIModal, setShowAIModal] = useState(false);
   const [isAutoTuning, setIsAutoTuning] = useState(false);
   const [tuneMessage, setTuneMessage] = useState(null);
 
@@ -72,6 +75,20 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
           [activeScope]: newMatrix
         }
       });
+    }
+  };
+
+  const handleApplyAIMatrix = (aiMatrix) => {
+    if (isCriteria) {
+      setProject(prev => ({ ...prev, criteria_matrix: aiMatrix }));
+    } else {
+      setProject(prev => ({
+        ...prev,
+        alt_matrices: {
+          ...prev.alt_matrices,
+          [activeScope]: aiMatrix
+        }
+      }));
     }
   };
 
@@ -181,6 +198,21 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
                 title="Đối sánh EVM, GMM và Chuẩn hóa số học (Thuật toán Voracious)"
               >
                 <FontAwesomeIcon icon={faChartSimple} style={{ fontSize: '12px' }} /> Đối Sánh Phương Pháp
+              </button>
+
+              <button
+                onClick={() => setShowAIModal(true)}
+                className="btn btn-secondary"
+                style={{ 
+                  fontSize: '0.78rem', 
+                  padding: '0.4rem 0.85rem',
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(139, 92, 246, 0.25) 100%)',
+                  border: '1px solid rgba(59, 130, 246, 0.5)',
+                  color: '#93c5fd'
+                }}
+                title="Khởi chạy Hội đồng Chuyên gia AI (LangGraph & AutoGen) tự động tranh luận và chấm điểm ma trận"
+              >
+                <FontAwesomeIcon icon={faRobot} style={{ fontSize: '12px', marginRight: '0.35rem' }} /> Hội Đồng AI
               </button>
 
               <div style={{ display: 'flex', background: 'rgba(0, 0, 0, 0.4)', padding: '0.2rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
@@ -801,6 +833,15 @@ export default function PairwiseStep({ project, setProject, onProceed, onBack, m
             Chuyển sang Bước 3: Tổng Hợp & Biểu Đồ Radar <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '15px', marginLeft: '0.4rem' }} />
           </button>
         </div>
+
+        <AIExpertPanelModal 
+          isOpen={showAIModal}
+          onClose={() => setShowAIModal(false)}
+          goal={project.goal}
+          scope={activeScope}
+          elements={elements}
+          onApplyMatrix={handleApplyAIMatrix}
+        />
 
       </div>
     </div>

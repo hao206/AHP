@@ -48,3 +48,6 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime Data
+backend/data/

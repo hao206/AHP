@@ -2,6 +2,7 @@
  * AHP Client Utility - Comprehensive API Client & Local Fallback Engine
  */
 import { missingMatrixPairs, missingProjectComparisons, invalidMatrixComparisons, invalidProjectComparisons } from './projectCompleteness.js';
+import { generateRequestId, telemetry } from './telemetry.js';
 
 // Same-origin /api uses Vite's development proxy. A separate deployed frontend
 // can set VITE_API_BASE_URL to the backend's full /api URL at build time.
@@ -19,14 +20,56 @@ function projectAuthorizationHeaders() {
   return projectAccessToken ? { Authorization: `Bearer ${projectAccessToken}` } : {};
 }
 
-async function fetchProjectEndpoint(url, options = {}) {
+/**
+ * Enhanced fetch wrapper featuring:
+ * 1. Automatic unique X-Request-ID propagation & correlation
+ * 2. Explicit configurable timeout with AbortController
+ * 3. Bidirectional logging and latency measurement
+ * 4. Automatic error telemetry reporting (Sentry / APM)
+ */
+export async function fetchWithTelemetryAndTimeout(url, options = {}, timeoutMs = 8000) {
+  const reqId = options.headers?.['X-Request-ID'] || generateRequestId();
+  const headers = {
+    'X-Request-ID': reqId,
+    ...(options.headers || {})
+  };
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  let isTimedOut = false;
+  const timer = setTimeout(() => {
+    isTimedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const startTime = performance.now();
+  telemetry.logRequest(options.method || 'GET', url, reqId, options.body);
+
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal
+    });
+    const duration = performance.now() - startTime;
+    const serverReqId = response.headers.get('x-request-id') || reqId;
+    telemetry.logResponse(options.method || 'GET', url, serverReqId, response.status, duration);
+    return response;
+  } catch (err) {
+    const duration = performance.now() - startTime;
+    let finalError = err;
+    if (isTimedOut || err.name === 'AbortError') {
+      finalError = new Error(`[${reqId}] Quá thời gian chờ phản hồi từ máy chủ (Timeout sau ${timeoutMs}ms). Vui lòng kiểm tra lại kết nối backend.`);
+      finalError.name = 'TimeoutError';
+      finalError.status = 408;
+    }
+    telemetry.logError(options.method || 'GET', url, reqId, finalError, duration);
+    throw finalError;
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
+}
+
+async function fetchProjectEndpoint(url, options = {}, timeoutMs = 10000) {
+  return await fetchWithTelemetryAndTimeout(url, options, timeoutMs);
 }
 
 async function ensureProjectBackend() {
@@ -102,52 +145,42 @@ export const SAATY_RI = {
 
 export async function evaluateMatrixAPI(elements, matrix) {
   if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
-    const res = await fetch(`${API_BASE}/ahp/evaluate-matrix`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/evaluate-matrix`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({ elements, matrix, method: "eigenvector" }),
-    });
+    }, 2500);
     if (res.ok) return await res.json();
     if (res.status === 400 || res.status === 422) return null;
   } catch (err) {
     console.warn("Backend API unavailable, using local calculation", err);
-  } finally {
-    clearTimeout(timeout);
   }
   return evaluateMatrixLocal(elements, matrix);
 }
 
 export async function benchmarkMethodsAPI(elements, matrix) {
   if (missingMatrixPairs(elements, matrix, 'matrix').length || invalidMatrixComparisons(elements, matrix, 'matrix').length) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
-    const res = await fetch(`${API_BASE}/ahp/benchmark-methods`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/benchmark-methods`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({ elements, matrix }),
-    });
+    }, 2500);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Benchmark API error", err);
-  } finally {
-    clearTimeout(timeout);
   }
   return null;
 }
 
 export async function completeMissingAPI(elements, matrix) {
   try {
-    const res = await fetch(`${API_BASE}/ahp/incomplete-complete`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/incomplete-complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ elements, matrix }),
-    });
+    }, 5000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Complete missing API error", err);
@@ -157,13 +190,10 @@ export async function completeMissingAPI(elements, matrix) {
 
 export async function synthesizeHierarchyAPI(project) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
   try {
-    const res = await fetch(`${API_BASE}/ahp/synthesize`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/synthesize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         goal: project.goal,
         criteria: project.criteria,
@@ -172,26 +202,21 @@ export async function synthesizeHierarchyAPI(project) {
         alt_matrices: project.alt_matrices,
         method: "eigenvector",
       }),
-    });
+    }, 3000);
     if (res.ok) return await res.json();
     if (res.status === 400 || res.status === 422) return null;
   } catch (err) {
     console.warn("Synthesis API error, using local calculation", err);
-  } finally {
-    clearTimeout(timeout);
   }
   return evaluateLocalSynthesis(project);
 }
 
 export async function getGradientSensitivityAPI(project, selectedCriterion) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch(`${API_BASE}/ahp/gradient-sensitivity`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/gradient-sensitivity`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         goal: project.goal,
         criteria: project.criteria,
@@ -200,31 +225,24 @@ export async function getGradientSensitivityAPI(project, selectedCriterion) {
         alt_matrices: project.alt_matrices,
         selected_criterion: selectedCriterion,
       }),
-    });
+    }, 5000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Gradient sensitivity API error, using local fallback", err);
-  } finally {
-    clearTimeout(timeout);
   }
   return evaluateLocalGradientSensitivity(project, selectedCriterion);
 }
 
 export async function runHybridTopsisAPI(payload) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch(`${API_BASE}/ahp/hybrid-topsis`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/hybrid-topsis`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify(payload),
-    });
+    }, 5000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Hybrid TOPSIS API error, using local fallback", err);
-  } finally {
-    clearTimeout(timeout);
   }
   return evaluateLocalHybridTopsis(payload);
 }
@@ -232,11 +250,11 @@ export async function runHybridTopsisAPI(payload) {
 export async function exportExcelAPI(project) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return false;
   try {
-    const res = await fetch(`${API_BASE}/export/excel`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/export/excel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(project),
-    });
+    }, 15000);
     if (res.ok) {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -255,14 +273,44 @@ export async function exportExcelAPI(project) {
   return false;
 }
 
+export async function suggestPersonasAPI(goal, elements) {
+  try {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ai/suggest-personas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, elements }),
+    }, 5000);
+    if (res.ok) {
+      const data = await res.json();
+      return data.personas || [];
+    }
+  } catch (err) {
+    console.warn("AI suggest personas error", err);
+  }
+  return [];
+}
+
+export async function deliberateAIAPI(payload) {
+  const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ai/deliberate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, 25000);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Lỗi hội đồng AI" }));
+    throw new Error(err.detail || "Không thể khởi chạy Hội đồng AI.");
+  }
+  return await res.json();
+}
+
 export async function importFileAPI(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${API_BASE}/import/file`, {
+  const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/import/file`, {
     method: "POST",
     body: formData,
-  });
+  }, 15000);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Lỗi tải tệp tin" }));
@@ -274,7 +322,7 @@ export async function importFileAPI(file) {
 export async function runMonteCarloAPI(project, numSimulations = 1000, perturbationPct = 0.20) {
   if (missingProjectComparisons(project).length || invalidProjectComparisons(project).length) return null;
   try {
-    const res = await fetch(`${API_BASE}/ahp/monte-carlo`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/monte-carlo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -286,7 +334,7 @@ export async function runMonteCarloAPI(project, numSimulations = 1000, perturbat
         num_simulations: numSimulations,
         perturbation_pct: perturbationPct,
       }),
-    });
+    }, 15000);
     if (res.ok) return await res.json();
     if (res.status >= 400 && res.status < 500) return null;
   } catch (err) {
@@ -297,7 +345,7 @@ export async function runMonteCarloAPI(project, numSimulations = 1000, perturbat
 
 export async function autoTuneConsistencyAPI(elements, matrix, targetCr = 0.10) {
   try {
-    const res = await fetch(`${API_BASE}/ahp/auto-tune-consistency`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/auto-tune-consistency`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -305,7 +353,7 @@ export async function autoTuneConsistencyAPI(elements, matrix, targetCr = 0.10) 
         matrix,
         target_cr: targetCr
       }),
-    });
+    }, 6000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Auto-tune consistency API error", err);
@@ -315,14 +363,14 @@ export async function autoTuneConsistencyAPI(elements, matrix, targetCr = 0.10) 
 
 export async function getGroupConsensusAPI(elements, expertMatrices) {
   try {
-    const res = await fetch(`${API_BASE}/ahp/group-consensus`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/group-consensus`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         elements,
         expert_matrices: expertMatrices
       }),
-    });
+    }, 6000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Group consensus API error", err);
@@ -332,14 +380,14 @@ export async function getGroupConsensusAPI(elements, expertMatrices) {
 
 export async function evaluateFuzzyAHPAPI(elements, fuzzyMatrix) {
   try {
-    const res = await fetch(`${API_BASE}/ahp/fuzzy`, {
+    const res = await fetchWithTelemetryAndTimeout(`${API_BASE}/ahp/fuzzy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         elements,
         fuzzy_matrix: fuzzyMatrix
       }),
-    });
+    }, 6000);
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("Fuzzy AHP API error", err);

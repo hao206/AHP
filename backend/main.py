@@ -3,14 +3,43 @@ import uuid
 import io
 import math
 import tempfile
+import time
+import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+# Configure structured logging
+logger = logging.getLogger("ahp_enterprise")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+# Optional Sentry / OpenTelemetry observability integration
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[FastApiIntegration(), StarletteIntegration()],
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+            environment=os.getenv("ENVIRONMENT", "production" if os.getenv("VERCEL") else "development"),
+            send_default_pii=False,
+        )
+        logger.info("Sentry APM & Error Tracking initialized successfully.")
+    except Exception as sentry_err:
+        logger.warning(f"Failed to initialize Sentry: {sentry_err}")
 
 from core.ahp_engine import (
     AHPMatrix, AHPHierarchy, run_hybrid_ahp_topsis, snap_to_saaty_scale, format_saaty_label,
@@ -20,6 +49,9 @@ from core.ahp_engine import (
 from core.file_importer import (
     parse_uploaded_file, generate_sample_excel_template, generate_sample_csv_template,
     infer_criterion_type
+)
+from ai_engine.orchestrator import (
+    run_ai_deliberation, suggest_personas_for_goal, DeliberationRequest
 )
 from core.project_store import PROJECTS_LOCK, load_projects, save_projects
 from core.api_security import allowed_origins, project_access_error, validate_project_token
@@ -49,8 +81,84 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
+
+@app.middleware("http")
+async def request_id_and_observability_middleware(request: Request, call_next):
+    """
+    Captures or generates unique X-Request-ID, logs bidirectional lifecycle,
+    and tags telemetry spans for Sentry / APM tracing.
+    """
+    req_id = request.headers.get("x-request-id") or f"req-{uuid.uuid4().hex[:12]}"
+    request.state.request_id = req_id
+    client_ip = request.client.host if request.client else "unknown"
+    start_time = time.perf_counter()
+
+    if SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.set_tag("request_id", req_id)
+        except Exception:
+            pass
+
+    logger.info(f"--> [REQ-START] {request.method} {request.url.path} | Client: {client_ip} | ReqID: {req_id}")
+
+    try:
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        response.headers["X-Request-ID"] = req_id
+        logger.info(f"<-- [REQ-DONE]  {request.method} {request.url.path} | Status: {response.status_code} | Duration: {duration_ms:.2f}ms | ReqID: {req_id}")
+        return response
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.error(f"<-- [REQ-FAIL]  {request.method} {request.url.path} | Duration: {duration_ms:.2f}ms | ReqID: {req_id} | Error: {str(exc)}", exc_info=True)
+        if SENTRY_DSN:
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(exc)
+            except Exception:
+                pass
+        raise exc
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    req_id = getattr(request.state, "request_id", "req-unknown")
+    logger.warning(f"[HTTP-WARN] {request.method} {request.url.path} returned {exc.status_code} | ReqID: {req_id} | Detail: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        headers={"X-Request-ID": req_id, **(exc.headers or {})},
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code,
+            "request_id": req_id,
+            "path": request.url.path
+        }
+    )
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    req_id = getattr(request.state, "request_id", "req-unknown")
+    logger.error(f"[SERVER-ERR] Unhandled exception on {request.method} {request.url.path} | ReqID: {req_id} | Detail: {str(exc)}", exc_info=True)
+    if SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
+    return JSONResponse(
+        status_code=500,
+        headers={"X-Request-ID": req_id},
+        content={
+            "detail": "Đã xảy ra lỗi nội bộ trên máy chủ xử lý.",
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "request_id": req_id,
+            "path": request.url.path
+        }
+    )
+
 
 if os.getenv("VERCEL") or not os.access(os.path.dirname(__file__), os.W_OK):
     DATA_DIR = os.path.join(tempfile.gettempdir(), "ahp_data")
@@ -686,6 +794,31 @@ def evaluate_fuzzy_ahp(req: FuzzyAHPRequest):
     """
     try:
         return compute_fuzzy_ahp(req.fuzzy_matrix, req.elements)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class SuggestPersonasRequest(BaseModel):
+    goal: str
+    elements: List[str]
+
+@app.post("/api/ai/suggest-personas")
+def api_suggest_personas(req: SuggestPersonasRequest):
+    """Suggests domain expert personas tailored to the specific decision goal."""
+    try:
+        personas = suggest_personas_for_goal(req.goal, req.elements)
+        return {"personas": [p.model_dump() for p in personas]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/ai/deliberate")
+def api_ai_deliberate(req: DeliberationRequest):
+    """
+    LangGraph Multi-Agent Deliberation & Consensus Engine:
+    Executes autonomous debate among AI expert personas and generates an aggregated consensus matrix.
+    """
+    try:
+        response = run_ai_deliberation(req)
+        return response.model_dump()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

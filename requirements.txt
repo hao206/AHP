@@ -1,8 +1,17 @@
-fastapi>=0.110.0
-pydantic>=2.0.0
-numpy>=1.26.0
-scipy>=1.11.0
-pandas>=2.0.0
-openpyxl>=3.1.0
-python-multipart>=0.0.9
-xlrd>=2.0.0
+# UI Styling Skill Dependencies
+# Python 3.10+ required
+
+# No Python package dependencies - uses only standard library
+
+# Testing dependencies (dev)
+pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+
+# Note: This skill works with shadcn/ui and Tailwind CSS
+# Requires Node.js and package managers:
+#   - Node.js 18+: https://nodejs.org/
+#   - npm (comes with Node.js)
+#
+# shadcn/ui CLI is installed per-project:
+#   npx shadcn-ui@latest init
