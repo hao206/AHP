@@ -35,14 +35,59 @@ export default function Navbar({
 
   const customKeys = Object.keys(customTemplates);
   const builtInKeys = Object.keys(builtInTemplates);
-  const saveStatusText = {
-    restoring: 'Đang khôi phục dự án…',
-    pending: 'Có thay đổi chưa đồng bộ',
-    saving: 'Đang lưu dự án…',
-    saved: 'Đã lưu trên máy chủ',
-    local: 'Đã giữ bản nháp trên máy; máy chủ chưa kết nối',
-    auth: 'Cần mã truy cập để lưu dự án',
-  }[saveStatus];
+  
+  const saveStatusConfig = {
+    saved: {
+      text: 'Đã lưu máy chủ',
+      color: '#34d399',
+      bg: 'rgba(52, 211, 153, 0.12)',
+      border: 'rgba(52, 211, 153, 0.25)',
+      icon: faCloudArrowUp,
+      title: 'Dữ liệu đã được đồng bộ an toàn lên máy chủ'
+    },
+    local: {
+      text: 'Đã lưu trên máy',
+      color: '#38bdf8',
+      bg: 'rgba(56, 189, 248, 0.12)',
+      border: 'rgba(56, 189, 248, 0.25)',
+      icon: faFloppyDisk,
+      title: 'Dữ liệu được lưu trữ tự động an toàn trong bộ nhớ máy (Offline)'
+    },
+    saving: {
+      text: 'Đang lưu…',
+      color: '#a78bfa',
+      bg: 'rgba(167, 139, 250, 0.12)',
+      border: 'rgba(167, 139, 250, 0.25)',
+      icon: faArrowsRotate,
+      spin: true,
+      title: 'Đang lưu dữ liệu dự án'
+    },
+    pending: {
+      text: 'Chưa đồng bộ',
+      color: '#fbbf24',
+      bg: 'rgba(251, 191, 36, 0.12)',
+      border: 'rgba(251, 191, 36, 0.25)',
+      icon: faFloppyDisk,
+      title: 'Có thay đổi mới, đang chờ tự động lưu'
+    },
+    restoring: {
+      text: 'Đang khôi phục…',
+      color: '#94a3b8',
+      bg: 'rgba(148, 163, 184, 0.12)',
+      border: 'rgba(148, 163, 184, 0.25)',
+      icon: faArrowsRotate,
+      spin: true,
+      title: 'Đang khôi phục dự án'
+    },
+    auth: {
+      text: 'Cần mã truy cập',
+      color: '#f87171',
+      bg: 'rgba(248, 113, 113, 0.12)',
+      border: 'rgba(248, 113, 113, 0.25)',
+      icon: faFloppyDisk,
+      title: 'Cần nhập mã truy cập để lưu lên máy chủ'
+    }
+  };
 
   return (
     <header className="glass-panel" style={{ margin: '1rem 1.5rem', padding: '0.85rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
@@ -135,9 +180,33 @@ export default function Navbar({
 
       {/* Action Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <span role="status" style={{ fontSize: '0.72rem', color: saveStatus === 'local' ? '#fbbf24' : 'var(--text-muted)', maxWidth: '190px' }}>
-          {saveStatusText}
-        </span>
+        {/* Save Status Badge Pill */}
+        {(() => {
+          const cfg = saveStatusConfig[saveStatus] || saveStatusConfig.local;
+          return (
+            <div
+              title={cfg.title}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '6px',
+                fontSize: '0.74rem',
+                fontWeight: '500',
+                color: cfg.color,
+                background: cfg.bg,
+                border: `1px solid ${cfg.border}`,
+                userSelect: 'none',
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <FontAwesomeIcon icon={cfg.icon} spin={cfg.spin} style={{ fontSize: '11px' }} />
+              <span>{cfg.text}</span>
+            </div>
+          );
+        })()}
         <button
           onClick={onSaveProject}
           disabled={saveStatus === 'restoring'}
