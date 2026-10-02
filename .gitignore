@@ -51,3 +51,7 @@ Thumbs.db
 
 # Runtime Data
 backend/data/
+
+# Agent IDE Customizations
+.agents/
+
