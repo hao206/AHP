@@ -9,7 +9,7 @@ LOCAL_FRONTEND_ORIGINS = ("http://127.0.0.1:5175", "http://localhost:5175")
 
 def allowed_origins(value=None):
     if value is None or not value.strip():
-        if os.getenv("VERCEL"):
+        if os.getenv("VERCEL") or os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("PORT"):
             return ["*"]
         return list(LOCAL_FRONTEND_ORIGINS)
     if value.strip() == "*":

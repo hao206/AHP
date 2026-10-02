@@ -1,0 +1,17 @@
+services:
+  # ==================================================
+  # AHP Decision Studio Enterprise - Backend API
+  # ==================================================
+  - type: web
+    name: ahp-backend
+    env: python
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: AHP_CORS_ORIGINS
+        value: "*"
